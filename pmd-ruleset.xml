@@ -31,7 +31,8 @@
           //PrimaryExpression[
             //Name[ matches(@Image, "(logger|log)\\.(info|warn|error)") ]
             and
-            //Literal[ matches(@Image, ".*?(password|username|aws|secret|key|credential\\s+key|printstacktrace|getstacktrace|System\\.out\\.println|sql|query).*") ]
+            //Literal[matches(@Image, ".*?\\b(password|username|aws|secret|key|credential\\s+key|printstacktrace|getstacktrace|System\\.out\\.println|sql|query)\\b.*")
+ ]
           ]
         ]]></value>
       </property>
