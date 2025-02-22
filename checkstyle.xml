@@ -7,7 +7,7 @@
 
         <!-- Rule for "password" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\bpassword\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bpassword\b.*?\)" />
             <property name="message" value="Don't log passwords." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -15,7 +15,7 @@
 
         <!-- Rule for "username" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\busername\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\busername\b.*?\)" />
             <property name="message" value="Don't log usernames." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -23,7 +23,7 @@
 
         <!-- Rule for "aws" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\baws\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\baws\b.*?\)" />
             <property name="message" value="Don't log AWS." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -31,7 +31,7 @@
 
         <!-- Rule for "secret" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\bsecret\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bsecret\b.*?\)" />
             <property name="message" value="Don't log secrets." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -39,7 +39,7 @@
 
         <!-- Rule for "key" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\bkey\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bkey\b.*?\)" />
             <property name="message" value="Don't log keys." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -47,7 +47,7 @@
 
         <!-- Rule for "credential key" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\bcredential\s+key\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bcredential\s+key\b.*?\)" />
             <property name="message" value="Don't log credential keys." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -55,7 +55,7 @@
 
         <!-- Rule for "printstacktrace" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\bprintstacktrace\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bprintstacktrace\b.*?\)" />
             <property name="message" value="Don't log stack traces." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -63,7 +63,7 @@
 
         <!-- Rule for "getstacktrace" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\bgetstacktrace\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bgetstacktrace\b.*?\)" />
             <property name="message" value="Don't log stack traces." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -71,7 +71,7 @@
 
         <!-- Rule for "System.out.println" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\bSystem\.out\.println\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bSystem\.out\.println\b.*?\)" />
             <property name="message" value="Don't use System.out.println." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -79,7 +79,7 @@
 
         <!-- Rule for "sql" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\bsql\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bsql\b.*?\)" />
             <property name="message" value="Don't log SQL." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
@@ -87,7 +87,7 @@
 
         <!-- Rule for "query" -->
         <module name="Regexp">
-            <property name="format" value="(logger|log)\.(info|warn|error|debug)\(.*?\bquery\b.*?\)" />
+            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bquery\b.*?\)" />
             <property name="message" value="Don't log queries." />
             <property name="ignoreComments" value="true"/>
             <property name="illegalPattern" value="true"/>
