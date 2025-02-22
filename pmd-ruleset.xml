@@ -4,35 +4,38 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 
                              https://pmd.sourceforge.net/ruleset_2_0_0.xsd">
-  <description>Custom rules to enforce logging best practices with case‑sensitive forbidden keywords.</description>
+  <description>Custom rules to enforce logging best practices with case-insensitive forbidden keywords.</description>
 
-  <!-- Rule to disallow System.out.println usage -->
+  <!-- Rule to disallow System.out.println usage (case-insensitive) -->
   <rule name="NoSystemOutPrintln"
         language="java"
         message="Avoid using System.out.println; use a proper logging framework instead."
         class="net.sourceforge.pmd.lang.rule.XPathRule">
     <properties>
       <property name="xpath">
-        <value><![CDATA[//PrimaryExpression[Name[@Image='System.out.println']]]]></value>
+        <value><![CDATA[
+          //PrimaryExpression[
+            //Name[ matches(@Image, "(?i)System\\.out\\.println") ]
+          ]
+        ]]></value>
       </property>
     </properties>
   </rule>
 
-  <!-- Rule to disallow sensitive words in logging statements (case‑sensitive) -->
+  <!-- Rule to disallow sensitive words in logging statements (case-insensitive) -->
   <rule name="NoSensitiveContentInLogMessages"
         language="java"
         message="Logging statements should not contain sensitive or forbidden content (e.g. password, username, aws, secret, key, credential key, printStackTrace, getStackTrace, System.out.println, sql, or query)."
         class="net.sourceforge.pmd.lang.rule.XPathRule">
-    <description>Disallow sensitive words in logging statements using either 'logger' or 'log'. All keywords are matched in a case‑sensitive manner.</description>
+    <description>Disallow sensitive words in logging statements using either 'logger' or 'log'. All keywords are matched in a case-insensitive manner.</description>
     <properties>
       <property name="version" value="2.0"/>
       <property name="xpath">
         <value><![CDATA[
           //PrimaryExpression[
-            //Name[ matches(@Image, "(logger|log)\\.(info|warn|error)") ]
+            //Name[ matches(@Image, "(?i)(logger|log)\\.(info|warn|error|debug)") ]
             and
-            //Literal[matches(@Image, ".*?\\b(password|username|aws|secret|key|credential\\s+key|printstacktrace|getstacktrace|System\\.out\\.println|sql|query)\\b.*")
- ]
+            //Literal[ matches(@Image, "(?i).*?\\b(password|username|aws|secret|key|credential\\s+key|printstacktrace|getstacktrace|System\\.out\\.println|sql|query)\\b.*") ]
           ]
         ]]></value>
       </property>
