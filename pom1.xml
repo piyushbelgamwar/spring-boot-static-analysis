@@ -1,80 +1,55 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0"
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
                              http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>com.example</groupId>
-  <artifactId>spring-boot-static-analysis</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  
+  <groupId>com.mycompany</groupId>
+  <artifactId>existing-library</artifactId>
+  <version>1.0.0</version>
   <packaging>jar</packaging>
+  <name>Existing Library</name>
+  <description>This library embeds quality configuration for Checkstyle.</description>
 
-  <parent>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-parent</artifactId>
-    <version>2.7.5</version>
-    <relativePath/>
-  </parent>
-
-  <dependencies>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
+  <!-- Property toggle for Checkstyle -->
+  <properties>
+    <!-- Set to false to run Checkstyle, true to skip -->
+    <checkstyle.skip>false</checkstyle.skip>
+  </properties>
 
   <build>
+    <resources>
+      <!-- By default, Maven includes src/main/resources -->
+      <resource>
+        <directory>src/main/resources</directory>
+        <includes>
+          <include>**/*</include>
+        </includes>
+      </resource>
+    </resources>
     <plugins>
-      <plugin>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-maven-plugin</artifactId>
-      </plugin>
+      <!-- Maven Checkstyle Plugin -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-checkstyle-plugin</artifactId>
         <version>3.1.2</version>
+        <configuration>
+          <skip>${checkstyle.skip}</skip>
+          <!-- Load configuration from library resources -->
+          <configLocation>classpath:config/checkstyle/checkstyle.xml</configLocation>
+          <failOnViolation>true</failOnViolation>
+        </configuration>
         <executions>
           <execution>
-            <id>validate</id>
+            <id>checkstyle</id>
             <phase>validate</phase>
             <goals>
               <goal>check</goal>
             </goals>
           </execution>
         </executions>
-        <configuration>
-          <configLocation>checkstyle.xml</configLocation>
-          <failOnViolation>true</failOnViolation>
-        </configuration>
       </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-pmd-plugin</artifactId>
-        <version>3.15.0</version>
-        <executions>
-          <execution>
-            <id>pmd</id>
-            <phase>validate</phase>
-            <goals>
-              <goal>check</goal>
-            </goals>
-          </execution>
-        </executions>
-        <configuration>
-          <rulesets>
-            <ruleset>pmd-ruleset.xml</ruleset>
-          </rulesets>
-          <failOnViolation>true</failOnViolation>
-        </configuration>
-      </plugin>
+      <!-- You can add similar plugin configuration for PMD if needed -->
     </plugins>
   </build>
 </project>
