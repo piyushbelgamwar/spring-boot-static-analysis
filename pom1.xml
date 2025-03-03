@@ -1,55 +1,40 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" 
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
-                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  
-  <groupId>com.mycompany</groupId>
-  <artifactId>existing-library</artifactId>
-  <version>1.0.0</version>
-  <packaging>jar</packaging>
-  <name>Existing Library</name>
-  <description>This library embeds quality configuration for Checkstyle.</description>
-
-  <!-- Property toggle for Checkstyle -->
-  <properties>
-    <!-- Set to false to run Checkstyle, true to skip -->
-    <checkstyle.skip>false</checkstyle.skip>
-  </properties>
-
-  <build>
-    <resources>
-      <!-- By default, Maven includes src/main/resources -->
-      <resource>
-        <directory>src/main/resources</directory>
-        <includes>
-          <include>**/*</include>
-        </includes>
-      </resource>
-    </resources>
+<build>
     <plugins>
-      <!-- Maven Checkstyle Plugin -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-checkstyle-plugin</artifactId>
-        <version>3.1.2</version>
-        <configuration>
-          <skip>${checkstyle.skip}</skip>
-          <!-- Load configuration from library resources -->
-          <configLocation>classpath:config/checkstyle/checkstyle.xml</configLocation>
-          <failOnViolation>true</failOnViolation>
-        </configuration>
-        <executions>
-          <execution>
-            <id>checkstyle</id>
-            <phase>validate</phase>
-            <goals>
-              <goal>check</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <!-- You can add similar plugin configuration for PMD if needed -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-checkstyle-plugin</artifactId>
+            <version>3.3.1</version>
+            <dependencies>
+                <!-- Add your checkstyle library as a dependency to the plugin -->
+                <dependency>
+                    <groupId>com.security</groupId>
+                    <artifactId>quality-check-library</artifactId>
+                    <version>1.0.0</version>
+                </dependency>
+                <!-- This ensures the plugin uses the same version of checkstyle -->
+                <dependency>
+                    <groupId>com.puppycrawl.tools</groupId>
+                    <artifactId>checkstyle</artifactId>
+                    <version>10.12.5</version>
+                </dependency>
+            </dependencies>
+            <configuration>
+                <!-- Reference the checkstyle.xml from your quality-check-library -->
+                <configLocation>com/security/checkstyle.xml</configLocation>
+                <encoding>UTF-8</encoding>
+                <consoleOutput>true</consoleOutput>
+                <failsOnError>true</failsOnError>
+                <linkXRef>false</linkXRef>
+            </configuration>
+            <executions>
+                <execution>
+                    <id>validate</id>
+                    <phase>verify</phase>
+                    <goals>
+                        <goal>check</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
     </plugins>
-  </build>
-</project>
+</build>
