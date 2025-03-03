@@ -1,97 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE module PUBLIC
-        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
-        "https://checkstyle.org/dtds/configuration_1_3.dtd">
-<module name="Checker">
-    <module name="TreeWalker">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
 
-        <!-- Rule for "password" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bpassword\b.*?\)" />
-            <property name="message" value="Don't log passwords." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
+    <groupId>com.example</groupId>
+    <artifactId>quality-check-library</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
 
-        <!-- Rule for "username" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\busername\b.*?\)" />
-            <property name="message" value="Don't log usernames." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
+    <name>Quality Check Library</name>
+    <description>A library that provides Checkstyle rules to detect insecure logging practices</description>
 
-        <!-- Rule for "aws" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\baws\b.*?\)" />
-            <property name="message" value="Don't log AWS." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <checkstyle.version>10.12.5</checkstyle.version>
+    </properties>
 
-        <!-- Rule for "secret" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bsecret\b.*?\)" />
-            <property name="message" value="Don't log secrets." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
+    <dependencies>
+        <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>${checkstyle.version}</version>
+        </dependency>
+    </dependencies>
 
-        <!-- Rule for "key" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bkey\b.*?\)" />
-            <property name="message" value="Don't log keys." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
 
-        <!-- Rule for "credential key" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bcredential\s+key\b.*?\)" />
-            <property name="message" value="Don't log credential keys." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
-
-        <!-- Rule for "printstacktrace" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bprintstacktrace\b.*?\)" />
-            <property name="message" value="Don't log stack traces." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
-
-        <!-- Rule for "getstacktrace" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bgetstacktrace\b.*?\)" />
-            <property name="message" value="Don't log stack traces." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
-
-        <!-- Rule for "System.out.println" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bSystem\.out\.println\b.*?\)" />
-            <property name="message" value="Don't use System.out.println." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
-
-        <!-- Rule for "sql" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bsql\b.*?\)" />
-            <property name="message" value="Don't log SQL." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
-
-        <!-- Rule for "query" -->
-        <module name="Regexp">
-            <property name="format" value="(?i)(logger|log)\.(info|warn|error|debug)\(.*?\bquery\b.*?\)" />
-            <property name="message" value="Don't log queries." />
-            <property name="ignoreComments" value="true"/>
-            <property name="illegalPattern" value="true"/>
-        </module>
-
-    </module>
-</module>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                            <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
