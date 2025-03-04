@@ -1,0 +1,71 @@
+package com.example.demo.service;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+@Service
+public class GoodLoggingService {
+    private static final Logger logger = LoggerFactory.getLogger(GoodLoggingService.class);
+
+    public String performGoodLogging() {
+        logger.info("Good logging: using SLF4J for logging.");
+        return "Good logging executed";
+    }
+
+    public void useSystemOutPrintln() {
+        System.out.println("Direct console output, which is forbidden.");
+    }
+
+    /**
+     * Logging sensitive information: contains the word 'password'.
+     */
+    public void logSensitiveInfo() {
+        logger.info("User password: 12345"); // Forbidden keyword: "password"
+    }
+
+    /**
+     * Logging sensitive information using alternative logger variable: contains 'username'.
+     */
+    public void logSensitiveWarn() {
+        logger.warn("The username is 'admin'."); // Forbidden keyword: "username"
+    }
+
+    /**
+     * Logging sensitive information by including a stack trace.
+     */
+    public void logSensitivePrintStackTrace() {
+        // This call to getStackTrace() should be flagged.
+        logger.info("Exception occurred: " + new Exception("Test exception").getStackTrace());
+    }
+
+    /**
+     * Logging sensitive information by embedding System.out.println within the log message.
+     */
+    public void logSensitiveSystemOut() {
+        // Even though this is part of a string literal, it should be flagged.
+        logger.info("This log message mentions System.out.println as a forbidden call.");
+    }
+
+    public void logSensitiveSystemOut1() {
+        // Even though this is part of a string literal, it should be flagged.
+        String query = "";
+        logger.debug("saving query {} ", query);
+    }
+
+
+    /**
+     * Logging sensitive information by printing an AWS key.
+     */
+    public void logSensitiveAwsKey() {
+        // This fake AWS key is for demonstration purposes and should trigger a violation.
+        logger.error("AWS key: AKIAIOSFODNN7EXAMPLE");
+    }
+
+    /**
+     * A proper log statement for contrast (should not be flagged).
+     */
+    public void logClean() {
+        logger.info("Processing order #12345 successfully."); // Correct usage
+    }
+}
