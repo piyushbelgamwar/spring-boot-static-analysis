@@ -3,7 +3,6 @@ import java.nio.file.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.stream.Collectors;
 
 public class KeywordSearcher {
     
@@ -11,6 +10,9 @@ public class KeywordSearcher {
             ".java", ".txt", ".xml", ".properties", ".json", ".js", ".html", ".css", ".md", 
             ".yml", ".yaml", ".conf", ".config", ".jsp", ".php", ".py", ".c", ".cpp", ".h"
     ));
+    
+    // For printing folder information
+    private static final Object printLock = new Object();
     
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -52,7 +54,7 @@ public class KeywordSearcher {
             
             // Print and write results
             if (results.isEmpty()) {
-                System.out.println("No occurrences of the keyword found.");
+                System.out.println("\nNo occurrences of the keyword found.");
                 writer.println("No occurrences of the keyword found.");
             } else {
                 String currentModule = "";
@@ -147,15 +149,25 @@ public class KeywordSearcher {
     private static void processModule(File module, String keyword, List<SearchResult> results) {
         String moduleName = module.getName();
         
+        // Print the module name being searched
+        synchronized(printLock) {
+            System.out.println("Searching module: " + moduleName);
+        }
+        
         try {
             Files.walk(module.toPath())
-                .filter(Files::isRegularFile)
-                .filter(path -> isTextFile(path.toString()))
                 .forEach(path -> {
-                    try {
-                        processFile(path.toFile(), moduleName, keyword, results);
-                    } catch (IOException e) {
-                        System.err.println("Error processing file " + path + ": " + e.getMessage());
+                    if (Files.isDirectory(path) && !path.equals(module.toPath())) {
+                        // Print each folder being searched
+                        synchronized(printLock) {
+                            System.out.println("Searching folder: " + path);
+                        }
+                    } else if (Files.isRegularFile(path) && isTextFile(path.toString())) {
+                        try {
+                            processFile(path.toFile(), moduleName, keyword, results);
+                        } catch (IOException e) {
+                            System.err.println("Error processing file " + path + ": " + e.getMessage());
+                        }
                     }
                 });
         } catch (IOException e) {
