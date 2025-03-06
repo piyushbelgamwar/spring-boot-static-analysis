@@ -1,71 +1,221 @@
-package com.example.demo.service;
+import java.io.*;
+import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-
-@Service
-public class GoodLoggingService {
-    private static final Logger logger = LoggerFactory.getLogger(GoodLoggingService.class);
-
-    public String performGoodLogging() {
-        logger.info("Good logging: using SLF4J for logging.");
-        return "Good logging executed";
+public class KeywordSearcher {
+    
+    private static final Set<String> TEXT_FILE_EXTENSIONS = new HashSet<>(Arrays.asList(
+            ".java", ".txt", ".xml", ".properties", ".json", ".js", ".html", ".css", ".md", 
+            ".yml", ".yaml", ".conf", ".config", ".jsp", ".php", ".py", ".c", ".cpp", ".h"
+    ));
+    
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        
+        // Get folder path from user
+        System.out.println("Enter the root folder path to search in:");
+        String rootFolderPath = scanner.nextLine().trim();
+        
+        // Get keyword from user
+        System.out.println("Enter the keyword to search for:");
+        String keyword = scanner.nextLine().trim();
+        
+        File rootFolder = new File(rootFolderPath);
+        if (!rootFolder.exists() || !rootFolder.isDirectory()) {
+            System.out.println("Error: The specified path does not exist or is not a directory.");
+            scanner.close();
+            return;
+        }
+        
+        System.out.println("Searching for keyword: \"" + keyword + "\" in " + rootFolderPath);
+        System.out.println("----------------------------------------------------");
+        
+        // Create result file
+        String resultFilePath = "keyword_search_results.txt";
+        try (PrintWriter writer = new PrintWriter(new FileWriter(resultFilePath))) {
+            writer.println("Search Results for keyword: \"" + keyword + "\"");
+            writer.println("Root folder: " + rootFolderPath);
+            writer.println("Date: " + new Date());
+            writer.println("----------------------------------------------------");
+            
+            // Start the search
+            long startTime = System.currentTimeMillis();
+            List<SearchResult> results = searchKeywordInFolder(rootFolder, keyword);
+            long endTime = System.currentTimeMillis();
+            
+            // Sort results by module and file name
+            results.sort(Comparator.comparing(SearchResult::getModuleName)
+                    .thenComparing(SearchResult::getFileName));
+            
+            // Print and write results
+            if (results.isEmpty()) {
+                System.out.println("No occurrences of the keyword found.");
+                writer.println("No occurrences of the keyword found.");
+            } else {
+                String currentModule = "";
+                
+                for (SearchResult result : results) {
+                    // Print module header if we're in a new module
+                    if (!result.getModuleName().equals(currentModule)) {
+                        currentModule = result.getModuleName();
+                        System.out.println("\nModule: " + currentModule);
+                    }
+                    
+                    // Print the result to console
+                    System.out.println("  File: " + result.getFileName() + ", Line: " + result.getLineNumber());
+                    
+                    // Write the result to file
+                    writer.println("Module: " + result.getModuleName() + 
+                                   ", File: " + result.getFileName() + 
+                                   ", Line: " + result.getLineNumber() +
+                                   ", Content: " + result.getLineContent().trim());
+                }
+                
+                System.out.println("\n----------------------------------------------------");
+                System.out.println("Total occurrences found: " + results.size());
+            }
+            
+            System.out.println("Search completed in " + (endTime - startTime) + " ms");
+            writer.println("\n----------------------------------------------------");
+            writer.println("Total occurrences found: " + results.size());
+            writer.println("Search completed in " + (endTime - startTime) + " ms");
+            
+            System.out.println("Results have been saved to: " + new File(resultFilePath).getAbsolutePath());
+            
+        } catch (IOException e) {
+            System.err.println("Error writing to result file: " + e.getMessage());
+        } finally {
+            scanner.close();
+        }
     }
-
-    public void useSystemOutPrintln() {
-        System.out.println("Direct console output, which is forbidden.");
+    
+    private static List<SearchResult> searchKeywordInFolder(File rootFolder, String keyword) {
+        List<SearchResult> results = Collections.synchronizedList(new ArrayList<>());
+        
+        // Get all modules (directories) from the root folder
+        File[] modules = rootFolder.listFiles(File::isDirectory);
+        
+        if (modules == null || modules.length == 0) {
+            System.out.println("No modules found in the root directory.");
+            return results;
+        }
+        
+        // Create a thread pool for parallel processing
+        int numThreads = Math.min(Runtime.getRuntime().availableProcessors(), modules.length);
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            
+            // Process each module in parallel
+            for (File module : modules) {
+                futures.add(executor.submit(() -> {
+                    try {
+                        processModule(module, keyword, results);
+                    } catch (Exception e) {
+                        System.err.println("Error processing module " + module.getName() + ": " + e.getMessage());
+                    }
+                }));
+            }
+            
+            // Wait for all tasks to complete
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (Exception e) {
+                    System.err.println("Error in search task: " + e.getMessage());
+                }
+            }
+        } finally {
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+        
+        return results;
     }
-
-    /**
-     * Logging sensitive information: contains the word 'password'.
-     */
-    public void logSensitiveInfo() {
-        logger.info("User password: 12345"); // Forbidden keyword: "password"
+    
+    private static void processModule(File module, String keyword, List<SearchResult> results) {
+        String moduleName = module.getName();
+        
+        try {
+            Files.walk(module.toPath())
+                .filter(Files::isRegularFile)
+                .filter(path -> isTextFile(path.toString()))
+                .forEach(path -> {
+                    try {
+                        processFile(path.toFile(), moduleName, keyword, results);
+                    } catch (IOException e) {
+                        System.err.println("Error processing file " + path + ": " + e.getMessage());
+                    }
+                });
+        } catch (IOException e) {
+            System.err.println("Error walking directory " + module + ": " + e.getMessage());
+        }
     }
-
-    /**
-     * Logging sensitive information using alternative logger variable: contains 'username'.
-     */
-    public void logSensitiveWarn() {
-        logger.warn("The username is 'admin'."); // Forbidden keyword: "username"
+    
+    private static boolean isTextFile(String filePath) {
+        String lowerCasePath = filePath.toLowerCase();
+        return TEXT_FILE_EXTENSIONS.stream().anyMatch(lowerCasePath::endsWith) ||
+               !lowerCasePath.contains(".");
     }
-
-    /**
-     * Logging sensitive information by including a stack trace.
-     */
-    public void logSensitivePrintStackTrace() {
-        // This call to getStackTrace() should be flagged.
-        logger.info("Exception occurred: " + new Exception("Test exception").getStackTrace());
+    
+    private static void processFile(File file, String moduleName, String keyword, List<SearchResult> results) 
+            throws IOException {
+        String fileName = file.getName();
+        
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file), StandardCharsets.UTF_8))) {
+            
+            String line;
+            int lineNumber = 0;
+            
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                
+                if (line.contains(keyword)) {
+                    results.add(new SearchResult(moduleName, fileName, lineNumber, line));
+                }
+            }
+        }
     }
-
-    /**
-     * Logging sensitive information by embedding System.out.println within the log message.
-     */
-    public void logSensitiveSystemOut() {
-        // Even though this is part of a string literal, it should be flagged.
-        logger.info("This log message mentions System.out.println as a forbidden call.");
-    }
-
-    public void logSensitiveSystemOut1() {
-        // Even though this is part of a string literal, it should be flagged.
-        String query = "";
-        logger.debug("saving query {} ", query);
-    }
-
-
-    /**
-     * Logging sensitive information by printing an AWS key.
-     */
-    public void logSensitiveAwsKey() {
-        // This fake AWS key is for demonstration purposes and should trigger a violation.
-        logger.error("AWS key: AKIAIOSFODNN7EXAMPLE");
-    }
-
-    /**
-     * A proper log statement for contrast (should not be flagged).
-     */
-    public void logClean() {
-        logger.info("Processing order #12345 successfully."); // Correct usage
+    
+    static class SearchResult {
+        private final String moduleName;
+        private final String fileName;
+        private final int lineNumber;
+        private final String lineContent;
+        
+        public SearchResult(String moduleName, String fileName, int lineNumber, String lineContent) {
+            this.moduleName = moduleName;
+            this.fileName = fileName;
+            this.lineNumber = lineNumber;
+            this.lineContent = lineContent;
+        }
+        
+        public String getModuleName() {
+            return moduleName;
+        }
+        
+        public String getFileName() {
+            return fileName;
+        }
+        
+        public int getLineNumber() {
+            return lineNumber;
+        }
+        
+        public String getLineContent() {
+            return lineContent;
+        }
     }
 }
