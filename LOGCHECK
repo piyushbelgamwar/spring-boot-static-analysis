@@ -3,15 +3,15 @@ import java.nio.file.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class KeywordSearcher {
     
-    private static final Set<String> TEXT_FILE_EXTENSIONS = new HashSet<>(Arrays.asList(
-            ".java", ".txt", ".xml", ".properties", ".json", ".js", ".html", ".css", ".md", 
-            ".yml", ".yaml", ".conf", ".config", ".jsp", ".php", ".py", ".c", ".cpp", ".h"
+    // Restrict file types to only these extensions
+    private static final Set<String> ALLOWED_FILE_EXTENSIONS = new HashSet<>(Arrays.asList(
+            ".java", ".xml", ".yaml", ".yml", ".properties"
     ));
     
-    // For printing folder information
     private static final Object printLock = new Object();
     
     public static void main(String[] args) {
@@ -33,6 +33,7 @@ public class KeywordSearcher {
         }
         
         System.out.println("Searching for keyword: \"" + keyword + "\" in " + rootFolderPath);
+        System.out.println("Scanning only files with extensions: " + String.join(", ", ALLOWED_FILE_EXTENSIONS));
         System.out.println("----------------------------------------------------");
         
         // Create result file
@@ -40,22 +41,38 @@ public class KeywordSearcher {
         try (PrintWriter writer = new PrintWriter(new FileWriter(resultFilePath))) {
             writer.println("Search Results for keyword: \"" + keyword + "\"");
             writer.println("Root folder: " + rootFolderPath);
+            writer.println("File types scanned: " + String.join(", ", ALLOWED_FILE_EXTENSIONS));
             writer.println("Date: " + new Date());
             writer.println("----------------------------------------------------");
             
             // Start the search
             long startTime = System.currentTimeMillis();
-            List<SearchResult> results = searchKeywordInFolder(rootFolder, keyword);
+            Map<String, ModuleSearchStats> moduleStats = new ConcurrentHashMap<>();
+            List<SearchResult> results = searchKeywordInFolder(rootFolder, keyword, moduleStats);
             long endTime = System.currentTimeMillis();
+            
+            // Print module statistics
+            System.out.println("\n----------------------------------------------------");
+            System.out.println("MODULE STATISTICS");
+            System.out.println("----------------------------------------------------");
+            
+            moduleStats.forEach((moduleName, stats) -> {
+                System.out.println("Module: " + moduleName + " --> " + stats.getFileCount() + " files scanned");
+                writer.println("Module: " + moduleName + " --> " + stats.getFileCount() + " files scanned");
+            });
             
             // Sort results by module and file name
             results.sort(Comparator.comparing(SearchResult::getModuleName)
                     .thenComparing(SearchResult::getFileName));
             
             // Print and write results
+            System.out.println("\n----------------------------------------------------");
+            System.out.println("SEARCH RESULTS");
+            System.out.println("----------------------------------------------------");
+            
             if (results.isEmpty()) {
-                System.out.println("\nNo occurrences of the keyword found.");
-                writer.println("No occurrences of the keyword found.");
+                System.out.println("No occurrences of the keyword found.");
+                writer.println("\nNo occurrences of the keyword found.");
             } else {
                 String currentModule = "";
                 
@@ -94,7 +111,8 @@ public class KeywordSearcher {
         }
     }
     
-    private static List<SearchResult> searchKeywordInFolder(File rootFolder, String keyword) {
+    private static List<SearchResult> searchKeywordInFolder(File rootFolder, String keyword, 
+                                                          Map<String, ModuleSearchStats> moduleStats) {
         List<SearchResult> results = Collections.synchronizedList(new ArrayList<>());
         
         // Get all modules (directories) from the root folder
@@ -114,11 +132,14 @@ public class KeywordSearcher {
             
             // Process each module in parallel
             for (File module : modules) {
+                String moduleName = module.getName();
+                moduleStats.put(moduleName, new ModuleSearchStats());
+                
                 futures.add(executor.submit(() -> {
                     try {
-                        processModule(module, keyword, results);
+                        processModule(module, keyword, results, moduleStats.get(moduleName));
                     } catch (Exception e) {
-                        System.err.println("Error processing module " + module.getName() + ": " + e.getMessage());
+                        System.err.println("Error processing module " + moduleName + ": " + e.getMessage());
                     }
                 }));
             }
@@ -146,7 +167,8 @@ public class KeywordSearcher {
         return results;
     }
     
-    private static void processModule(File module, String keyword, List<SearchResult> results) {
+    private static void processModule(File module, String keyword, List<SearchResult> results, 
+                                     ModuleSearchStats stats) {
         String moduleName = module.getName();
         
         // Print the module name being searched
@@ -156,18 +178,14 @@ public class KeywordSearcher {
         
         try {
             Files.walk(module.toPath())
+                .filter(Files::isRegularFile)
+                .filter(path -> isAllowedFileType(path.toString()))
                 .forEach(path -> {
-                    if (Files.isDirectory(path) && !path.equals(module.toPath())) {
-                        // Print each folder being searched
-                        synchronized(printLock) {
-                            System.out.println("Searching folder: " + path);
-                        }
-                    } else if (Files.isRegularFile(path) && isTextFile(path.toString())) {
-                        try {
-                            processFile(path.toFile(), moduleName, keyword, results);
-                        } catch (IOException e) {
-                            System.err.println("Error processing file " + path + ": " + e.getMessage());
-                        }
+                    stats.incrementFileCount();
+                    try {
+                        processFile(path.toFile(), moduleName, keyword, results);
+                    } catch (IOException e) {
+                        System.err.println("Error processing file " + path + ": " + e.getMessage());
                     }
                 });
         } catch (IOException e) {
@@ -175,10 +193,9 @@ public class KeywordSearcher {
         }
     }
     
-    private static boolean isTextFile(String filePath) {
+    private static boolean isAllowedFileType(String filePath) {
         String lowerCasePath = filePath.toLowerCase();
-        return TEXT_FILE_EXTENSIONS.stream().anyMatch(lowerCasePath::endsWith) ||
-               !lowerCasePath.contains(".");
+        return ALLOWED_FILE_EXTENSIONS.stream().anyMatch(lowerCasePath::endsWith);
     }
     
     private static void processFile(File file, String moduleName, String keyword, List<SearchResult> results) 
@@ -198,6 +215,18 @@ public class KeywordSearcher {
                     results.add(new SearchResult(moduleName, fileName, lineNumber, line));
                 }
             }
+        }
+    }
+    
+    static class ModuleSearchStats {
+        private final AtomicInteger fileCount = new AtomicInteger(0);
+        
+        public void incrementFileCount() {
+            fileCount.incrementAndGet();
+        }
+        
+        public int getFileCount() {
+            return fileCount.get();
         }
     }
     
