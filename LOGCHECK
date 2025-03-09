@@ -1,7 +1,12 @@
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class GitLabCloner {
     // Base directory where repositories will be cloned
@@ -11,14 +16,14 @@ public class GitLabCloner {
     private static final String GITLAB_URL = "https://gitlab.example.com";
     
     // Groups to try (in order of preference)
-    private static final String[] GROUP_PATHS = {"FDC/", "DCP/"};
+    private static final List<String> GROUP_PATHS = List.of("FDC/", "DCP/");
     
     // Optional: Personal access token for private repositories
     // private static final String GITLAB_TOKEN = "your_personal_access_token";
     
     public static void main(String[] args) {
-        // Option 1: Define the list of 108 module names directly
-        List<String> modules = Arrays.asList(
+        // Option 1: Define the list of module names directly
+        var modules = List.of(
             "module1",
             "module2",
             "module3",
@@ -28,21 +33,22 @@ public class GitLabCloner {
         
         // Option 2: Read from a string (uncomment if you have a string with module names)
         // String moduleString = "module1 module2 module3 ... module108";
-        // List<String> modules = Arrays.asList(moduleString.split("\\s+"));
+        // var modules = Arrays.stream(moduleString.split("\\s+")).toList();
         
         // Option 3: Read from a file (uncomment if you have a file with module names)
-        // List<String> modules = readModulesFromFile("modules.txt");
+        // var modules = readModulesFromFile("modules.txt");
         
         // Create base directory if it doesn't exist
-        File baseDir = new File(BASE_DIR);
-        if (!baseDir.exists()) {
-            baseDir.mkdirs();
+        var baseDir = Path.of(BASE_DIR);
+        try {
+            Files.createDirectories(baseDir);
+        } catch (IOException e) {
+            System.err.println("Error creating base directory: " + e.getMessage());
+            return;
         }
         
         // Clone each repository
-        for (String module : modules) {
-            cloneRepository(module);
-        }
+        modules.forEach(GitLabCloner::cloneRepository);
         
         System.out.println("All modules have been cloned.");
     }
@@ -51,47 +57,47 @@ public class GitLabCloner {
         System.out.println("Cloning " + moduleName + "...");
         
         // Create directory for the module
-        File moduleDir = new File(BASE_DIR, moduleName);
-        if (!moduleDir.exists()) {
-            moduleDir.mkdirs();
-        }
+        var moduleDir = Path.of(BASE_DIR, moduleName);
         
-        boolean success = false;
+        var success = false;
         
         // Try each group path until successful
-        for (String groupPath : GROUP_PATHS) {
+        for (var groupPath : GROUP_PATHS) {
             try {
+                // Clean up any previous attempt
+                if (Files.exists(moduleDir)) {
+                    deleteDirectoryRecursively(moduleDir);
+                }
+                Files.createDirectories(moduleDir);
+                
                 System.out.println("Trying to clone from " + groupPath + moduleName + "...");
                 
                 // Build the git clone command
-                ProcessBuilder processBuilder = new ProcessBuilder();
+                var repoUrl = GITLAB_URL + "/" + groupPath + moduleName + ".git";
+                var processBuilder = new ProcessBuilder();
                 
                 // For private repositories with token:
-                // processBuilder.command("git", "clone", GITLAB_URL + "/" + groupPath + moduleName + ".git", 
-                //                        moduleDir.getAbsolutePath(), "--config", 
-                //                        "http.extraheader=PRIVATE-TOKEN: " + GITLAB_TOKEN);
+                // processBuilder.command("git", "clone", repoUrl, 
+                //                moduleDir.toString(), "--config", 
+                //                "http.extraheader=PRIVATE-TOKEN: " + GITLAB_TOKEN);
                 
                 // Without token:
-                processBuilder.command("git", "clone", GITLAB_URL + "/" + groupPath + moduleName + ".git", 
-                                      moduleDir.getAbsolutePath());
+                processBuilder.command("git", "clone", repoUrl, moduleDir.toString());
                 
                 // Redirect error output to a file to suppress it from console
-                File errorLog = new File("git_error.log");
+                var errorLog = Path.of("git_error.log").toFile();
                 processBuilder.redirectError(errorLog);
                 
                 // Execute the command
-                Process process = processBuilder.start();
-                int exitCode = process.waitFor();
+                var process = processBuilder.start();
+                var completed = process.waitFor(2, TimeUnit.MINUTES); // Add timeout
                 
-                if (exitCode == 0) {
+                if (completed && process.exitValue() == 0) {
                     System.out.println("Successfully cloned " + moduleName + " from " + groupPath);
                     success = true;
-                    break;  // Exit the loop if successful
+                    break; // Exit the loop if successful
                 } else {
                     System.out.println("Module not found in " + groupPath + ", trying next group...");
-                    // Clean up the partially created directory for the next attempt
-                    deleteDirectory(moduleDir);
-                    moduleDir.mkdirs();
                 }
                 
             } catch (IOException | InterruptedException e) {
@@ -103,39 +109,39 @@ public class GitLabCloner {
         if (!success) {
             System.out.println("Failed to clone " + moduleName + " from any group");
             // Clean up empty directory if all attempts failed
-            moduleDir.delete();
+            try {
+                Files.deleteIfExists(moduleDir);
+            } catch (IOException e) {
+                System.err.println("Failed to clean up directory: " + e.getMessage());
+            }
         }
     }
     
-    // Helper method to delete a directory recursively
-    private static void deleteDirectory(File directory) {
-        if (directory.exists()) {
-            File[] files = directory.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    if (file.isDirectory()) {
-                        deleteDirectory(file);
-                    } else {
-                        file.delete();
-                    }
-                }
-            }
-            directory.delete();
+    // Helper method to delete a directory recursively using Java NIO
+    private static void deleteDirectoryRecursively(Path path) throws IOException {
+        if (Files.exists(path)) {
+            Files.walk(path)
+                 .sorted((a, b) -> -a.compareTo(b)) // Reverse order so children are deleted before parents
+                 .forEach(p -> {
+                     try {
+                         Files.delete(p);
+                     } catch (IOException e) {
+                         System.err.println("Failed to delete: " + p + " - " + e.getMessage());
+                     }
+                 });
         }
-    }
     }
     
     // Helper method to read module names from a file (for Option 3)
     private static List<String> readModulesFromFile(String filename) {
-        List<String> modules = new java.util.ArrayList<>();
         try {
-            java.nio.file.Files.lines(java.nio.file.Paths.get(filename))
-                .map(String::trim)
-                .filter(line -> !line.isEmpty())
-                .forEach(modules::add);
+            return Files.lines(Path.of(filename))
+                       .map(String::trim)
+                       .filter(line -> !line.isEmpty())
+                       .collect(Collectors.toList());
         } catch (IOException e) {
             System.err.println("Error reading module names from file: " + e.getMessage());
+            return List.of(); // Return empty list on error
         }
-        return modules;
     }
 }
