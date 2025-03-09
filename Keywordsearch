@@ -1,0 +1,380 @@
+import java.io.*;
+import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public class KeywordSearcher {
+    
+    // Restrict file types to only these extensions
+    private static final Set<String> ALLOWED_FILE_EXTENSIONS = new HashSet<>(Arrays.asList(
+            ".java", ".xml", ".yaml", ".yml", ".properties"
+    ));
+    
+    private static final Object printLock = new Object();
+    
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        
+        // Get folder path from user
+        System.out.println("Enter the root folder path to search in:");
+        String rootFolderPath = scanner.nextLine().trim();
+        
+        // Get keyword from user
+        System.out.println("Enter the keyword to search for:");
+        String keyword = scanner.nextLine().trim();
+        
+        // Ask if user wants to search for properties specifically
+        System.out.println("Do you want to search for this keyword in properties files and extract complete key-value pairs? (y/n):");
+        boolean searchProperties = scanner.nextLine().trim().equalsIgnoreCase("y");
+        
+        File rootFolder = new File(rootFolderPath);
+        if (!rootFolder.exists() || !rootFolder.isDirectory()) {
+            System.out.println("Error: The specified path does not exist or is not a directory.");
+            scanner.close();
+            return;
+        }
+        
+        System.out.println("Searching for keyword: \"" + keyword + "\" in " + rootFolderPath);
+        System.out.println("Scanning only files with extensions: " + String.join(", ", ALLOWED_FILE_EXTENSIONS));
+        if (searchProperties) {
+            System.out.println("Will extract complete key-value pairs from properties files");
+        }
+        System.out.println("----------------------------------------------------");
+        
+        // Create result file
+        String resultFilePath = "keyword_search_results.txt";
+        try (PrintWriter writer = new PrintWriter(new FileWriter(resultFilePath))) {
+            writer.println("Search Results for keyword: \"" + keyword + "\"");
+            writer.println("Root folder: " + rootFolderPath);
+            writer.println("File types scanned: " + String.join(", ", ALLOWED_FILE_EXTENSIONS));
+            if (searchProperties) {
+                writer.println("Extracting complete key-value pairs from properties files");
+            }
+            writer.println("Date: " + new Date());
+            writer.println("----------------------------------------------------");
+            
+            // Start the search
+            long startTime = System.currentTimeMillis();
+            Map<String, ModuleSearchStats> moduleStats = new ConcurrentHashMap<>();
+            List<SearchResult> results = searchKeywordInFolder(rootFolder, keyword, moduleStats, searchProperties);
+            long endTime = System.currentTimeMillis();
+            
+            // Print module statistics
+            System.out.println("\n----------------------------------------------------");
+            System.out.println("MODULE STATISTICS");
+            System.out.println("----------------------------------------------------");
+            
+            moduleStats.forEach((moduleName, stats) -> {
+                System.out.println("Module: " + moduleName + " --> " + stats.getFileCount() + " files scanned");
+                writer.println("Module: " + moduleName + " --> " + stats.getFileCount() + " files scanned");
+            });
+            
+            // Sort results by module and file name
+            results.sort(Comparator.comparing(SearchResult::getModuleName)
+                    .thenComparing(SearchResult::getFileName));
+            
+            // Print and write results
+            System.out.println("\n----------------------------------------------------");
+            System.out.println("SEARCH RESULTS");
+            System.out.println("----------------------------------------------------");
+            
+            if (results.isEmpty()) {
+                System.out.println("No occurrences of the keyword found.");
+                writer.println("\nNo occurrences of the keyword found.");
+            } else {
+                String currentModule = "";
+                
+                for (SearchResult result : results) {
+                    // Print module header if we're in a new module
+                    if (!result.getModuleName().equals(currentModule)) {
+                        currentModule = result.getModuleName();
+                        System.out.println("\nModule: " + currentModule);
+                    }
+                    
+                    // Print the result to console
+                    System.out.println("  File: " + result.getFileName() + ", Line: " + result.getLineNumber());
+                    
+                    // Write the result to file
+                    writer.println("Module: " + result.getModuleName() + 
+                                   ", File: " + result.getFileName() + 
+                                   ", Line: " + result.getLineNumber() +
+                                   ", Content: " + result.getLineContent().trim());
+                    
+                    // Add property key-value if available
+                    if (result.getPropertyKeyValue() != null) {
+                        System.out.println("    Property: " + result.getPropertyKeyValue());
+                        writer.println("    Property: " + result.getPropertyKeyValue());
+                    }
+                }
+                
+                System.out.println("\n----------------------------------------------------");
+                System.out.println("Total occurrences found: " + results.size());
+            }
+            
+            System.out.println("Search completed in " + (endTime - startTime) + " ms");
+            writer.println("\n----------------------------------------------------");
+            writer.println("Total occurrences found: " + results.size());
+            writer.println("Search completed in " + (endTime - startTime) + " ms");
+            
+            System.out.println("Results have been saved to: " + new File(resultFilePath).getAbsolutePath());
+            
+        } catch (IOException e) {
+            System.err.println("Error writing to result file: " + e.getMessage());
+        } finally {
+            scanner.close();
+        }
+    }
+    
+    private static List<SearchResult> searchKeywordInFolder(File rootFolder, String keyword, 
+                                                          Map<String, ModuleSearchStats> moduleStats,
+                                                          boolean searchProperties) {
+        List<SearchResult> results = Collections.synchronizedList(new ArrayList<>());
+        
+        // Get all modules (directories) from the root folder
+        File[] modules = rootFolder.listFiles(File::isDirectory);
+        
+        if (modules == null || modules.length == 0) {
+            System.out.println("No modules found in the root directory.");
+            return results;
+        }
+        
+        // Create a thread pool for parallel processing
+        int numThreads = Math.min(Runtime.getRuntime().availableProcessors(), modules.length);
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            
+            // Process each module in parallel
+            for (File module : modules) {
+                String moduleName = module.getName();
+                moduleStats.put(moduleName, new ModuleSearchStats());
+                
+                futures.add(executor.submit(() -> {
+                    try {
+                        processModule(module, keyword, results, moduleStats.get(moduleName), searchProperties);
+                    } catch (Exception e) {
+                        System.err.println("Error processing module " + moduleName + ": " + e.getMessage());
+                    }
+                }));
+            }
+            
+            // Wait for all tasks to complete
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (Exception e) {
+                    System.err.println("Error in search task: " + e.getMessage());
+                }
+            }
+        } finally {
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+        
+        return results;
+    }
+    
+    private static void processModule(File module, String keyword, List<SearchResult> results, 
+                                     ModuleSearchStats stats, boolean searchProperties) {
+        String moduleName = module.getName();
+        
+        // Print the module name being searched
+        synchronized(printLock) {
+            System.out.println("Searching module: " + moduleName);
+        }
+        
+        try {
+            Files.walk(module.toPath())
+                .filter(Files::isRegularFile)
+                .filter(path -> isAllowedFileType(path.toString()))
+                .forEach(path -> {
+                    stats.incrementFileCount();
+                    try {
+                        if (searchProperties && path.toString().endsWith(".properties")) {
+                            processPropertiesFile(path.toFile(), moduleName, keyword, results);
+                        } else {
+                            processFile(path.toFile(), moduleName, keyword, results);
+                        }
+                    } catch (IOException e) {
+                        System.err.println("Error processing file " + path + ": " + e.getMessage());
+                    }
+                });
+        } catch (IOException e) {
+            System.err.println("Error walking directory " + module + ": " + e.getMessage());
+        }
+    }
+    
+    private static boolean isAllowedFileType(String filePath) {
+        String lowerCasePath = filePath.toLowerCase();
+        return ALLOWED_FILE_EXTENSIONS.stream().anyMatch(lowerCasePath::endsWith);
+    }
+    
+    private static void processFile(File file, String moduleName, String keyword, List<SearchResult> results) 
+            throws IOException {
+        String fileName = file.getName();
+        
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file), StandardCharsets.UTF_8))) {
+            
+            String line;
+            int lineNumber = 0;
+            
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                
+                if (line.contains(keyword)) {
+                    results.add(new SearchResult(moduleName, fileName, lineNumber, line, null));
+                }
+            }
+        }
+    }
+    
+    private static void processPropertiesFile(File file, String moduleName, String keyword, List<SearchResult> results) 
+            throws IOException {
+        String fileName = file.getName();
+        
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file), StandardCharsets.UTF_8))) {
+            
+            String line;
+            int lineNumber = 0;
+            
+            // For multi-line properties
+            StringBuilder currentProperty = new StringBuilder();
+            String currentKey = null;
+            int startLineNumber = 0;
+            boolean inMultiLine = false;
+            
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                
+                // Skip comments and empty lines
+                if (line.trim().startsWith("#") || line.trim().isEmpty()) {
+                    continue;
+                }
+                
+                // Handle line continuations (backslash at end of line)
+                if (line.trim().endsWith("\\")) {
+                    // Start or continue a multi-line property
+                    if (!inMultiLine) {
+                        // Extract key from the first line
+                        int equalsPos = line.indexOf('=');
+                        if (equalsPos > 0) {
+                            currentKey = line.substring(0, equalsPos).trim();
+                            startLineNumber = lineNumber;
+                            currentProperty.append(line);
+                            inMultiLine = true;
+                        }
+                    } else {
+                        // Continue appending to multi-line property
+                        currentProperty.append("\n").append(line);
+                    }
+                    continue;
+                } else if (inMultiLine) {
+                    // Last line of a multi-line property
+                    currentProperty.append("\n").append(line);
+                    String fullProperty = currentProperty.toString();
+                    
+                    // Check if the full property contains the keyword
+                    if (fullProperty.contains(keyword)) {
+                        results.add(new SearchResult(
+                            moduleName, 
+                            fileName, 
+                            startLineNumber, 
+                            "Multi-line property", 
+                            currentKey + " = (multi-line value containing '" + keyword + "')"
+                        ));
+                    }
+                    
+                    // Reset for next property
+                    currentProperty = new StringBuilder();
+                    currentKey = null;
+                    inMultiLine = false;
+                    continue;
+                }
+                
+                // Regular single-line property
+                if (line.contains(keyword)) {
+                    // Parse the property line to get key and value
+                    int equalsPos = line.indexOf('=');
+                    if (equalsPos > 0) {
+                        String key = line.substring(0, equalsPos).trim();
+                        String value = equalsPos < line.length() - 1 ? 
+                                      line.substring(equalsPos + 1).trim() : "";
+                        
+                        results.add(new SearchResult(
+                            moduleName, 
+                            fileName, 
+                            lineNumber, 
+                            line, 
+                            key + " = " + value
+                        ));
+                    } else {
+                        // If no equals sign, just add the line
+                        results.add(new SearchResult(moduleName, fileName, lineNumber, line, null));
+                    }
+                }
+            }
+        }
+    }
+    
+    static class ModuleSearchStats {
+        private final AtomicInteger fileCount = new AtomicInteger(0);
+        
+        public void incrementFileCount() {
+            fileCount.incrementAndGet();
+        }
+        
+        public int getFileCount() {
+            return fileCount.get();
+        }
+    }
+    
+    static class SearchResult {
+        private final String moduleName;
+        private final String fileName;
+        private final int lineNumber;
+        private final String lineContent;
+        private final String propertyKeyValue;
+        
+        public SearchResult(String moduleName, String fileName, int lineNumber, String lineContent, String propertyKeyValue) {
+            this.moduleName = moduleName;
+            this.fileName = fileName;
+            this.lineNumber = lineNumber;
+            this.lineContent = lineContent;
+            this.propertyKeyValue = propertyKeyValue;
+        }
+        
+        public String getModuleName() {
+            return moduleName;
+        }
+        
+        public String getFileName() {
+            return fileName;
+        }
+        
+        public int getLineNumber() {
+            return lineNumber;
+        }
+        
+        public String getLineContent() {
+            return lineContent;
+        }
+        
+        public String getPropertyKeyValue() {
+            return propertyKeyValue;
+        }
+    }
+}
