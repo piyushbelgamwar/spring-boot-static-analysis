@@ -10,11 +10,8 @@ public class GitLabCloner {
     // GitLab base URL
     private static final String GITLAB_URL = "https://gitlab.example.com";
     
-    // Group or organization path (if modules are in a specific group)
-    // For example, if your repo URL is gitlab.example.com/my-group/module1, then use:
-    private static final String GROUP_PATH = "my-group/";
-    // Leave empty if modules are at the root level
-    // private static final String GROUP_PATH = "";
+    // Groups to try (in order of preference)
+    private static final String[] GROUP_PATHS = {"FDC/", "DCP/"};
     
     // Optional: Personal access token for private repositories
     // private static final String GITLAB_TOKEN = "your_personal_access_token";
@@ -51,43 +48,81 @@ public class GitLabCloner {
     }
     
     private static void cloneRepository(String moduleName) {
-        try {
-            System.out.println("Cloning " + moduleName + "...");
-            
-            // Create directory for the module
-            File moduleDir = new File(BASE_DIR, moduleName);
-            if (!moduleDir.exists()) {
-                moduleDir.mkdirs();
-            }
-            
-            // Build the git clone command
-            ProcessBuilder processBuilder = new ProcessBuilder();
-            
-            // For private repositories with token:
-            // processBuilder.command("git", "clone", GITLAB_URL + "/" + GROUP_PATH + moduleName + ".git", 
-            //                        moduleDir.getAbsolutePath(), "--config", 
-            //                        "http.extraheader=PRIVATE-TOKEN: " + GITLAB_TOKEN);
-            
-            // Without token:
-            processBuilder.command("git", "clone", GITLAB_URL + "/" + GROUP_PATH + moduleName + ".git", 
-                                  moduleDir.getAbsolutePath());
-            
-            // Redirect output to console
-            processBuilder.inheritIO();
-            
-            // Execute the command
-            Process process = processBuilder.start();
-            int exitCode = process.waitFor();
-            
-            if (exitCode == 0) {
-                System.out.println("Successfully cloned " + moduleName);
-            } else {
-                System.out.println("Failed to clone " + moduleName);
-            }
-            
-        } catch (IOException | InterruptedException e) {
-            System.err.println("Error cloning " + moduleName + ": " + e.getMessage());
+        System.out.println("Cloning " + moduleName + "...");
+        
+        // Create directory for the module
+        File moduleDir = new File(BASE_DIR, moduleName);
+        if (!moduleDir.exists()) {
+            moduleDir.mkdirs();
         }
+        
+        boolean success = false;
+        
+        // Try each group path until successful
+        for (String groupPath : GROUP_PATHS) {
+            try {
+                System.out.println("Trying to clone from " + groupPath + moduleName + "...");
+                
+                // Build the git clone command
+                ProcessBuilder processBuilder = new ProcessBuilder();
+                
+                // For private repositories with token:
+                // processBuilder.command("git", "clone", GITLAB_URL + "/" + groupPath + moduleName + ".git", 
+                //                        moduleDir.getAbsolutePath(), "--config", 
+                //                        "http.extraheader=PRIVATE-TOKEN: " + GITLAB_TOKEN);
+                
+                // Without token:
+                processBuilder.command("git", "clone", GITLAB_URL + "/" + groupPath + moduleName + ".git", 
+                                      moduleDir.getAbsolutePath());
+                
+                // Redirect error output to a file to suppress it from console
+                File errorLog = new File("git_error.log");
+                processBuilder.redirectError(errorLog);
+                
+                // Execute the command
+                Process process = processBuilder.start();
+                int exitCode = process.waitFor();
+                
+                if (exitCode == 0) {
+                    System.out.println("Successfully cloned " + moduleName + " from " + groupPath);
+                    success = true;
+                    break;  // Exit the loop if successful
+                } else {
+                    System.out.println("Module not found in " + groupPath + ", trying next group...");
+                    // Clean up the partially created directory for the next attempt
+                    deleteDirectory(moduleDir);
+                    moduleDir.mkdirs();
+                }
+                
+            } catch (IOException | InterruptedException e) {
+                System.err.println("Error trying to clone from " + groupPath + ": " + e.getMessage());
+            }
+        }
+        
+        // Final success/failure message
+        if (!success) {
+            System.out.println("Failed to clone " + moduleName + " from any group");
+            // Clean up empty directory if all attempts failed
+            moduleDir.delete();
+        }
+    }
+    
+    // Helper method to delete a directory recursively
+    private static void deleteDirectory(File directory) {
+        if (directory.exists()) {
+            File[] files = directory.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (file.isDirectory()) {
+                        deleteDirectory(file);
+                    } else {
+                        file.delete();
+                    }
+                }
+            }
+            directory.delete();
+        }
+    }
     }
     
     // Helper method to read module names from a file (for Option 3)
