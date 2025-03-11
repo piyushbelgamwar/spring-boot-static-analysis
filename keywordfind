@@ -1,0 +1,294 @@
+package com.qualitycheck;
+
+import java.io.*;
+import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+public class KeywordSearcherImprove {
+
+    private static final Set<String> ALLOWED_FILE_EXTENSIONS = new HashSet<>(Arrays.asList(
+            ".java", ".xml", ".yaml", ".yml", ".properties"
+    ));
+
+    private static final Object PRINT_LOCK = new Object();
+
+    private static final String RESULT_FILE_PATH = "keyword_search_results.txt";
+
+    public static void main(String[] args) {
+        UserInput input = getUserInput();
+        if (input == null) {
+            return;
+        }
+
+        printSearchParameters(input);
+
+        try (PrintWriter writer = new PrintWriter(new FileWriter(RESULT_FILE_PATH))) {
+            writeResultFileHeader(writer, input);
+
+            long startTime = System.currentTimeMillis();
+            SearchResults results = performSearch(input);
+            long endTime = System.currentTimeMillis();
+
+            outputModuleStatistics(results.moduleStats, writer);
+
+            outputSearchResults(results.matches, writer);
+
+            outputSummary(results.matches.size(), endTime - startTime, writer);
+
+            System.out.println("Results have been saved to: " + new File(RESULT_FILE_PATH).getAbsolutePath());
+        } catch (IOException e) {
+            System.err.println("Error writing to result file: " + e.getMessage());
+        }
+    }
+
+
+    private static UserInput getUserInput() {
+        Scanner scanner = new Scanner(System.in);
+
+        try {
+            System.out.println("Enter the root folder path to search in:");
+            String rootFolderPath = scanner.nextLine().trim();
+
+            File rootFolder = new File(rootFolderPath);
+            if (!rootFolder.exists() || !rootFolder.isDirectory()) {
+                System.out.println("Error: The specified path does not exist or is not a directory.");
+                return null;
+            }
+
+            System.out.println("Enter the keyword to search for:");
+            String keyword = scanner.nextLine().trim();
+            if (keyword.isEmpty()) {
+                System.out.println("Error: Keyword cannot be empty.");
+                return null;
+            }
+
+            return new UserInput(rootFolder, keyword);
+        } finally {
+            scanner.close();
+        }
+    }
+    private static void printSearchParameters(UserInput input) {
+        System.out.println("Searching for keyword: \"" + input.keyword + "\" in " + input.rootFolder.getAbsolutePath());
+        System.out.println("Scanning only files with extensions: " + String.join(", ", ALLOWED_FILE_EXTENSIONS));
+        System.out.println("----------------------------------------------------");
+    }
+    private static void writeResultFileHeader(PrintWriter writer, UserInput input) {
+        writer.println("Search Results for keyword: \"" + input.keyword + "\"");
+        writer.println("Root folder: " + input.rootFolder.getAbsolutePath());
+        writer.println("File types scanned: " + String.join(", ", ALLOWED_FILE_EXTENSIONS));
+        writer.println("Date: " + new Date());
+        writer.println("----------------------------------------------------");
+    }
+    private static SearchResults performSearch(UserInput input) {
+        Map<String, ModuleSearchStats> moduleStats = new ConcurrentHashMap<>();
+        List<SearchMatch> matches = Collections.synchronizedList(new ArrayList<>());
+
+        File[] modules = input.rootFolder.listFiles(File::isDirectory);
+        if (modules == null || modules.length == 0) {
+            System.out.println("No modules found in the root directory.");
+            return new SearchResults(matches, moduleStats);
+        }
+        int numThreads = Math.min(Runtime.getRuntime().availableProcessors(), modules.length);
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (File module : modules) {
+                String moduleName = module.getName();
+                moduleStats.put(moduleName, new ModuleSearchStats());
+
+                futures.add(executor.submit(() -> {
+                    try {
+                        processModule(module, input.keyword, matches, moduleStats.get(moduleName));
+                    } catch (Exception e) {
+                        System.err.println("Error processing module " + moduleName + ": " + e.getMessage());
+                    }
+                }));
+            }
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (Exception e) {
+                    System.err.println("Error in search task: " + e.getMessage());
+                }
+            }
+        } finally {
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+        matches.sort(Comparator.comparing(SearchMatch::getModuleName)
+                .thenComparing(SearchMatch::getFileName));
+
+        return new SearchResults(matches, moduleStats);
+    }
+
+    private static void processModule(File module, String keyword, List<SearchMatch> matches,
+                                      ModuleSearchStats stats) {
+        String moduleName = module.getName();
+
+        synchronized(PRINT_LOCK) {
+            System.out.println("Searching module: " + moduleName);
+        }
+
+        try {
+            Files.walk(module.toPath())
+                    .filter(Files::isRegularFile)
+                    .filter(path -> isAllowedFileType(path.toString()))
+                    .forEach(path -> {
+                        stats.incrementFileCount();
+                        try {
+                            processFile(path.toFile(), moduleName, keyword, matches);
+                        } catch (IOException e) {
+                            System.err.println("Error processing file " + path + ": " + e.getMessage());
+                        }
+                    });
+        } catch (IOException e) {
+            System.err.println("Error walking directory " + module + ": " + e.getMessage());
+        }
+    }
+
+    private static boolean isAllowedFileType(String filePath) {
+        String lowerCasePath = filePath.toLowerCase();
+        return ALLOWED_FILE_EXTENSIONS.stream().anyMatch(lowerCasePath::endsWith);
+    }
+
+    private static void processFile(File file, String moduleName, String keyword, List<SearchMatch> matches)
+            throws IOException {
+        String fileName = file.getName();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file), StandardCharsets.UTF_8))) {
+
+            String line;
+            int lineNumber = 0;
+
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+
+                if (line.contains(keyword)) {
+                    matches.add(new SearchMatch(moduleName, fileName, lineNumber, line, null));
+                }
+            }
+        }
+    }
+
+    private static void outputModuleStatistics(Map<String, ModuleSearchStats> moduleStats, PrintWriter writer) {
+        System.out.println("\n----------------------------------------------------");
+        System.out.println("MODULE STATISTICS");
+        System.out.println("----------------------------------------------------");
+
+        moduleStats.forEach((moduleName, stats) -> {
+            System.out.println("Module: " + moduleName + " --> " + stats.getFileCount() + " files scanned");
+            writer.println("Module: " + moduleName + " --> " + stats.getFileCount() + " files scanned");
+        });
+    }
+
+    private static void outputSearchResults(List<SearchMatch> matches, PrintWriter writer) {
+        System.out.println("\n----------------------------------------------------");
+        System.out.println("SEARCH RESULTS");
+        System.out.println("----------------------------------------------------");
+
+        if (matches.isEmpty()) {
+            System.out.println("No occurrences of the keyword found.");
+            writer.println("\nNo occurrences of the keyword found.");
+        } else {
+            String currentModule = "";
+
+            for (SearchMatch match : matches) {
+                // Print module header if we're in a new module
+                if (!match.getModuleName().equals(currentModule)) {
+                    currentModule = match.getModuleName();
+                    System.out.println("\nModule: " + currentModule);
+                }
+
+                System.out.println("  File: " + match.getFileName() + ", Line: " + match.getLineNumber());
+
+                writer.println("Module: " + match.getModuleName() +
+                        ", File: " + match.getFileName() +
+                        ", Line: " + match.getLineNumber() +
+                        ", Content: " + match.getLineContent().trim());
+            }
+        }
+    }
+
+    private static void outputSummary(int matchCount, long executionTime, PrintWriter writer) {
+        System.out.println("\n----------------------------------------------------");
+        System.out.println("Total occurrences found: " + matchCount);
+        System.out.println("Search completed in " + executionTime + " ms");
+
+        writer.println("\n----------------------------------------------------");
+        writer.println("Total occurrences found: " + matchCount);
+        writer.println("Search completed in " + executionTime + " ms");
+    }
+
+    static class UserInput {
+        final File rootFolder;
+        final String keyword;
+
+        UserInput(File rootFolder, String keyword) {
+            this.rootFolder = rootFolder;
+            this.keyword = keyword;
+        }
+    }
+
+    static class SearchResults {
+        final List<SearchMatch> matches;
+        final Map<String, ModuleSearchStats> moduleStats;
+
+        SearchResults(List<SearchMatch> matches, Map<String, ModuleSearchStats> moduleStats) {
+            this.matches = matches;
+            this.moduleStats = moduleStats;
+        }
+    }
+
+    static class ModuleSearchStats {
+        private final AtomicInteger fileCount = new AtomicInteger(0);
+
+        public void incrementFileCount() {
+            fileCount.incrementAndGet();
+        }
+
+        public int getFileCount() {
+            return fileCount.get();
+        }
+    }
+
+    static class SearchMatch {
+        private final String moduleName;
+        private final String fileName;
+        private final int lineNumber;
+        private final String lineContent;
+
+        public SearchMatch(String moduleName, String fileName, int lineNumber, String lineContent, String unused) {
+            this.moduleName = moduleName;
+            this.fileName = fileName;
+            this.lineNumber = lineNumber;
+            this.lineContent = lineContent;
+        }
+
+        public String getModuleName() {
+            return moduleName;
+        }
+
+        public String getFileName() {
+            return fileName;
+        }
+
+        public int getLineNumber() {
+            return lineNumber;
+        }
+
+        public String getLineContent() {
+            return lineContent;
+        }
+    }
+}
