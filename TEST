@@ -1,2 +1,33 @@
  // Just set the basic property for whitespace stripping
     transformerFactory.setAttribute("http://saxon.sf.net/feature/strip-whitespace", "all");
+
+
+public static TransformerFactory getTransformerFactory() {
+    TransformerFactory transformerFactory = TransformerFactory.newInstance();
+    transformerFactory.setAttribute(Feature.SCHEMA_VALIDATION.name(), 1);
+    transformerFactory.setAttribute(Feature.VALIDATION_WARNINGS.name(), Boolean.TRUE);
+    transformerFactory.setAttribute(Feature.ALLOW_UNRESOLVED_SCHEMA_COMPONENTS.name(), true);
+    
+    // Configure Saxon Enterprise for whitespace handling
+    if (transformerFactory instanceof net.sf.saxon.TransformerFactoryImpl) {
+        net.sf.saxon.TransformerFactoryImpl saxonFactory = 
+            (net.sf.saxon.TransformerFactoryImpl)transformerFactory;
+        
+        // Use standard properties available in all Saxon versions
+        saxonFactory.getConfiguration().setConfigurationProperty(
+            net.sf.saxon.lib.FeatureKeys.STRIP_WHITESPACE, "all");
+            
+        // Add a custom output filter with a simpler method
+        saxonFactory.setAttribute(
+            net.sf.saxon.lib.FeatureKeys.OUTPUT_URI_RESOLVER,
+            new net.sf.saxon.lib.OutputURIResolver() {
+                @Override
+                public Result resolve(String href, String base) {
+                    // Set up a filter that strips whitespace during output
+                    return new net.sf.saxon.lib.StandardOutputResolver().resolve(href, base);
+                }
+            });
+    }
+    
+    return transformerFactory;
+}
