@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- 
+    ******************************************************************* 
+    * 
+    *    Schema for: Data Item REP026a - Access to Cash - Banks and Building Societies 
+    *    Version:    1 
+    *    Date:       24 July 2024 
+    * 
+    *    History:   N/A 
+    * 
+    * 
+    ******************************************************************* 
+--> 
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified" 
+    attributeFormDefault="unqualified" targetNamespace="urn:fsa-gov-uk:MER:REP026a:1" 
+    xmlns="urn:fsa-gov-uk:MER:REP026a:1" xmlns:mer-meta="urn:fsa-gov-uk:MER:Meta-Data:1" version="1" 
+    id="MER-REP026a"> 
+
+    <xs:annotation> 
+        <xs:documentation> 
+            <mer-meta:DataItemReference>REP026a</mer-meta:DataItemReference> 
+            <mer-meta:DataItemName>Access to Cash - Banks and Building Societies</mer-meta:DataItemName> 
+        </xs:documentation> 
+    </xs:annotation> 
+
+    <xs:include schemaLocation="../../CommonTypes/v17/CommonTypes-Schema.xsd"/> 
+
+    <!-- Define non-empty string types that require at least one non-whitespace character -->
+    <xs:simpleType name="NonEmptyString100Type">
+        <xs:restriction base="String100Type">
+            <xs:pattern value=".*\S.*"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="NonEmptyString400Type">
+        <xs:restriction base="String400Type">
+            <xs:pattern value=".*\S.*"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="NonEmptyString2000Type">
+        <xs:restriction base="String2000Type">
+            <xs:pattern value=".*\S.*"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:element name="REP026a-AccesstoCashBanksandBuildingSocieties"> 
+        <xs:complexType> 
+            <xs:sequence> 
+                <xs:element name="IdentifyingInformation" minOccurs="1"> 
+                    <xs:complexType> 
+                        <xs:sequence> 
+                            <xs:element name="FRN" type="FRNType" minOccurs="1"/> 
+                        </xs:sequence> 
+                    </xs:complexType> 
+                </xs:element> 
+                <xs:element name="BranchInformation" minOccurs="1" maxOccurs="unbounded"> 
+                    <xs:complexType> 
+                        <xs:sequence> 
+                            <xs:element name="BUID" type="String100Type" minOccurs="1"/> 
+                            <xs:element name="MUID" type="NonEmptyString100Type" minOccurs="0"/> 
+                            <xs:element name="BranchName" type="NonEmptyString100Type" minOccurs="0"/> 
+                            <xs:element name="Brand" type="String100Type" minOccurs="1"/> 
+                            <xs:element name="SortCode" type="SortcodeType" minOccurs="0"/> 
+                            <xs:element name="OtherID" type="NonEmptyString2000Type" minOccurs="0"/> 
+                            <xs:element name="Leasehold" type="YesNoNAType" minOccurs="1"/> 
+                             
+                            <xs:element name="LocationInformation" minOccurs="1"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="Postcode" type="PostCodeType" minOccurs="1"/> 
+                                        <xs:element name="Address" type="String2000Type" minOccurs="1"/> 
+                                        <xs:element name="Easting" type="EastNorthType" minOccurs="1"/> 
+                                        <xs:element name="Northing" type="EastNorthType" minOccurs="1"/> 
+                                        <xs:element name="Latitude" type="LongLatType" minOccurs="1"/> 
+                                        <xs:element name="Longitude" type="LongLatType" minOccurs="1"/> 
+                                        <xs:element name="OtherLocation" type="NonEmptyString2000Type" minOccurs="0"/>                                                     
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="BranchOpeningHours" minOccurs="1"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="Monday" type="String400Type" minOccurs="1"/> 
+                                        <xs:element name="Tuesday" type="String400Type" minOccurs="1"/> 
+                                        <xs:element name="Wednesday" type="String400Type" minOccurs="1"/> 
+                                        <xs:element name="Thursday" type="String400Type" minOccurs="1"/> 
+                                        <xs:element name="Friday" type="String400Type" minOccurs="1"/> 
+                                        <xs:element name="Saturday" type="String400Type" minOccurs="1"/> 
+                                        <xs:element name="Sunday" type="String400Type" minOccurs="1"/> 
+                                        <xs:element name="Reduced" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="TempClosedDays" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                        <xs:element name="TempClosedReason" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="OtherHours" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="BranchCharacteristicsInternalFacilities" minOccurs="1"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="Agency" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="Dependant" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="CommunityBanker" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="CounterFtoF" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="ConsumerDeposits" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="BusinessDeposits" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="ConsumerWithdrawals" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="BusinessWithdrawals" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="BusinessBalanceEnq" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="LBIT" type="YesNoType" minOccurs="1"/> 
+                                        <xs:element name="FreeATMID" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="PAYATMID" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="CounterAll" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="CounterPersonal" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="CounterSME" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="ATMAll" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="ATMPersonal" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="ATMSME" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="ATMNote" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="ATMCoin" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="ATMCashIDs" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="ATMSupport" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="NonChipCard" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="OtherType" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="BranchAccessibility" minOccurs="1"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="Wheelchair" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="StepFree" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="Hearing" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="VisualImpairment" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="OtherAccess" type="NonEmptyString400Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="ExternalFacilities" minOccurs="1"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="ExternalDeposit" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="ExternalFTUATM" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="ExternalPTUATM" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="ExternalAllDay" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="OtherExternal" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="UsageLevels" minOccurs="1"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="ConsumerFootfall" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="BusinessFootfall" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="ConsumerVolWithdrawal" type="NonNegativeMonetaryType" minOccurs="1"/> 
+                                        <xs:element name="BusinessVolWithdrawal" type="NonNegativeMonetaryType" minOccurs="1"/> 
+                                        <xs:element name="ConsumerVolDeposit" type="NonNegativeMonetaryType" minOccurs="1"/> 
+                                        <xs:element name="BusinessVolDeposit" type="NonNegativeMonetaryType" minOccurs="1"/> 
+                                        <xs:element name="ConsumerWithdrawalTrans" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="BusinessWithdrawalTrans" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="ConsumerDepositTrans" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="BusinessDepositTrans" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="ConsumerBalanceEnq" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="BusinessBalanceEnq" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="NoRegisteredPersonalCustomers" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="DefnRegularPersonalCustomer" type="NonEmptyString2000Type" minOccurs="0"/>                                                                                                                              
+                                        <xs:element name="NoRegularPersonalCustomers" type="NonNegativeIntegerType" minOccurs="1"/>                             
+                                        <xs:element name="NoOnlineCustomers" type="NonNegativeIntegerType" minOccurs="1"/>                             
+                                        <xs:element name="NoMobileBankingCustomers" type="NonNegativeIntegerType" minOccurs="1"/>                             
+                                        <xs:element name="NoPhoneBankingCustomers" type="NonNegativeIntegerType" minOccurs="1"/>                             
+                                        <xs:element name="DefnRegularSMECustomer" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="NoRegularSMECustomers" type="NonNegativeIntegerType" minOccurs="1"/>                             
+                                        <xs:element name="NoSMEDepositCustomers" type="NonNegativeIntegerType" minOccurs="1"/>                             
+                                        <xs:element name="NoSMEWithdrawalCustomers" type="NonNegativeIntegerType" minOccurs="1"/>                             
+                                        <xs:element name="NoRegisteredSMECustomers" type="NonNegativeIntegerType" minOccurs="0"/>                             
+                                        <xs:element name="OtherUsage" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="CustomersVulnerableCirc" minOccurs="1"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="NoVulnerableCustomers" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="NoPassbookNonChipCustomers" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                        <xs:element name="NoBasicAccounts" type="NonNegativeIntegerType" minOccurs="1"/> 
+                                        <xs:element name="OtherVulnerable" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="SupportStrategyVulnerableCustomers" minOccurs="0"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="SupportStrategy" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="RemovalSatHours" minOccurs="1"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="SaturdayClosure" type="YesNoNAType" minOccurs="1"/> 
+                                        <xs:element name="SaturdayClosureResidual" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="ProposedClosure" minOccurs="1"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="Closure" type="YesNoType" minOccurs="1"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="ProposedClosureDetails" minOccurs="0"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="ClosureDate" type="DateRestriction" minOccurs="0"/> 
+                                        <xs:element name="AnnouncementDate" type="DateRestriction" minOccurs="0"/> 
+                                        <xs:element name="ATMRemaining" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="PreviousHopper" type="YesNoNAType" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="CommunicationAndClosures" minOccurs="0"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="TwelveWeeks" type="YesNoNAType" minOccurs="0"/> 
+                                        <xs:element name="LocalStakeholders" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="EngagementStrategy" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="ProvisionOfAlternativeAccessPoint" minOccurs="0"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="ProvisionGap" type="YesNoNAType" minOccurs="0"/> 
+                                        <xs:element name="ProvisionGapTime" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                        <xs:element name="ProvisionGapDetails" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="AvailablePO" minOccurs="0"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="NearestPostcode" type="PostCodeType" minOccurs="0"/> 
+                                        <xs:element name="NearestAddress" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="POEnhanced" type="YesNoNAType" minOccurs="0"/> 
+                                        <xs:element name="POOutreach" type="YesNoNAType" minOccurs="0"/> 
+                                        <xs:element name="DrivingTime" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                        <xs:element name="PublicTransportTime" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                        <xs:element name="MonOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="TuesOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="WedOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="ThursOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="FriOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="SatOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="SunOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="POCapacity" type="YesNoNAType" minOccurs="0"/> 
+                                        <xs:element name="POSuitability" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="OtherPO" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="ImpactPODeflection" minOccurs="0"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="SMEPODeflection" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                        <xs:element name="SMEOtherDeflection" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                        <xs:element name="SMEResidual" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="SMECosts" type="YesNoNAType" minOccurs="0"/> 
+                                        <xs:element name="SMEContactStrategy" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="SMEExcessDeposits" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="RemainingBranchesAndDeflection" minOccurs="0"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="BranchPostcode" type="PostCodeType" minOccurs="0"/> 
+                                        <xs:element name="BranchAddress" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="BranchDrivingTime" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                        <xs:element name="BranchPublicTransportTime" type="NonNegativeIntegerType" minOccurs="0"/> 
+                                        <xs:element name="BranchMonOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="BranchTuesOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="BranchWedOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="BranchThursOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="BranchFriOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="BranchSatOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="BranchSunOH" type="NonEmptyString400Type" minOccurs="0"/> 
+                                        <xs:element name="OHDeflection" type="YesNoNAType" minOccurs="0"/> 
+                                        <xs:element name="ServicesDeflection" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="SuitabilityDeflection" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                            <xs:element name="RemainingBSAndATM" minOccurs="0"> 
+                                <xs:complexType> 
+                                    <xs:sequence> 
+                                        <xs:element name="BSPostcode" type="PostCodeType" minOccurs="0"/> 
+                                        <xs:element name="BSAddress" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="BSDistance" type="NonNegativeFloat2Type" minOccurs="0"/> 
+                                        <xs:element name="FTUATMPostcode" type="PostCodeType" minOccurs="0"/> 
+                                        <xs:element name="FTUATMAddress" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                        <xs:element name="ATMDistance" type="NonNegativeFloat2Type" minOccurs="0"/> 
+                                        <xs:element name="OtherATM" type="NonEmptyString2000Type" minOccurs="0"/> 
+                                    </xs:sequence> 
+                                </xs:complexType> 
+                            </xs:element> 
+                        </xs:sequence> 
+                    </xs:complexType> 
+                </xs:element> 
+            </xs:sequence> 
+            <xs:attribute name="currency" fixed="GBP" use="required"/> 
+            <xs:attribute name="units" fixed="single" use="required"/> 
+        </xs:complexType> 
+    </xs:element> 
+</xs:schema>
