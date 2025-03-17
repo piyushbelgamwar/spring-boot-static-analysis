@@ -1,0 +1,24 @@
+public static TransformerFactory getTransformerFactory() {
+    TransformerFactory transformerFactory = TransformerFactory.newInstance();
+    transformerFactory.setAttribute(Feature.SCHEMA_VALIDATION.name(), 1);
+    transformerFactory.setAttribute(Feature.VALIDATION_WARNINGS.name(), Boolean.TRUE);
+    transformerFactory.setAttribute(Feature.ALLOW_UNRESOLVED_SCHEMA_COMPONENTS.name(), true);
+    
+    // Configure whitespace handling with Saxon Enterprise
+    if (transformerFactory instanceof net.sf.saxon.TransformerFactoryImpl) {
+        net.sf.saxon.TransformerFactoryImpl saxonFactory = 
+            (net.sf.saxon.TransformerFactoryImpl)transformerFactory;
+        
+        // Strip all whitespace
+        saxonFactory.getConfiguration().setStripsWhiteSpace("all");
+        
+        // Create strict whitespace stripping policy
+        saxonFactory.getConfiguration().setStripsWhitespace(true);
+        
+        // Set whitespace stripping mode to maximum
+        saxonFactory.getConfiguration().setConfigurationProperty(
+            Feature.STRIP_WHITESPACE.name(), "all");
+    }
+    
+    return transformerFactory;
+}
