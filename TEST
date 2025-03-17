@@ -4,20 +4,27 @@ public static TransformerFactory getTransformerFactory() {
     transformerFactory.setAttribute(Feature.VALIDATION_WARNINGS.name(), Boolean.TRUE);
     transformerFactory.setAttribute(Feature.ALLOW_UNRESOLVED_SCHEMA_COMPONENTS.name(), true);
     
-    // Configure whitespace handling with Saxon Enterprise
+    // Configure Saxon Enterprise for whitespace handling
     if (transformerFactory instanceof net.sf.saxon.TransformerFactoryImpl) {
         net.sf.saxon.TransformerFactoryImpl saxonFactory = 
             (net.sf.saxon.TransformerFactoryImpl)transformerFactory;
         
-        // Strip all whitespace
+        // Set stricter whitespace policy
+        saxonFactory.getConfiguration().setConfigurationProperty(
+            net.sf.saxon.lib.FeatureKeys.STRIP_WHITESPACE, "all");
+            
+        // Configure to strip all whitespace-only text nodes
         saxonFactory.getConfiguration().setStripsWhiteSpace("all");
         
-        // Create strict whitespace stripping policy
-        saxonFactory.getConfiguration().setStripsWhitespace(true);
-        
-        // Set whitespace stripping mode to maximum
-        saxonFactory.getConfiguration().setConfigurationProperty(
-            Feature.STRIP_WHITESPACE.name(), "all");
+        // Create a space-stripping rule
+        saxonFactory.getConfiguration().setSpaceStrippingRule(
+            new net.sf.saxon.lib.IgnorableSpaceStrippingRule() {
+                @Override
+                public int isSpacePreserving(net.sf.saxon.om.NodeName nodeName, 
+                                           net.sf.saxon.om.SchemaType schemaType) {
+                    return net.sf.saxon.lib.SpaceStrippingRule.STRIP_DEFAULT;
+                }
+            });
     }
     
     return transformerFactory;
