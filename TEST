@@ -1,85 +1,59 @@
-public ValidationErrorResponse performAsyncSchemaValidation(InputStream inputStream, DataProcessingInfo dpInfo) {
-    List<ValidationError> validationErrorsList = new ArrayList();
-    String dataItemWithVersion;
-    if (dpInfo.getFilePath() == null) {
-        dataItemWithVersion = this.dataItemVersionService.getDataItemVersionFromUrlPath(dpInfo);
-    } else {
-        dataItemWithVersion = dpInfo.getFilePath();
-    }
+@Trace
+@Consumes({"application/xml"})
+@PutMapping("/REP/REP026a/schemaAndBusinessValidationForAsyncProcess/v1")
+public ResponseEntity<ValidateDataItemResponse> schemaAndBusinessValidationForAsyncProcess(
+        @RequestBody Map<String, Object> requestParameterMap, @RequestHeader Map<String, String> headers) throws ClassNotFoundException, XMLStreamException, ParseException, IOException {
 
-    LOGGER.info("Data Item Version is {}", dataItemWithVersion);
-
-    try {
-        // Create a copy of the input stream so we can read it multiple times
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        byte[] buffer = new byte[1024];
-        int len;
-        while ((len = inputStream.read(buffer)) > -1) {
-            baos.write(buffer, 0, len);
-        }
-        byte[] xmlBytes = baos.toByteArray();
-        
-        // First, check for empty elements by converting to string
-        String xmlContent = new String(xmlBytes, StandardCharsets.UTF_8);
-        checkForEmptyElements(xmlContent, validationErrorsList, dpInfo);
-        
-        // Then, proceed with normal schema validation
-        ByteArrayInputStream inputStreamForValidation = new ByteArrayInputStream(xmlBytes);
-        
-        System.setProperty("javax.xml.transform.TransformerFactory", "com.saxonica.config.EnterpriseTransformerFactory");
-        TransformerFactory transformerFactory = CommonUtility.getTransformerFactory();
-        String stringSchemaFile = this.dataItemVersionService.getStringFileNameByVersionAndExtension(dataItemWithVersion, this.schemaFileSuffix, dpInfo);
-        LOGGER.info("stringSchemaFile = {}", stringSchemaFile);
-        StreamSource specific = new StreamSource(this.getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
-        ((EnterpriseTransformerFactory)transformerFactory).addSchema(specific);
-        Transformer trans = transformerFactory.newTransformer();
-        StreamSource source = new StreamSource(inputStreamForValidation);
-        SAXResult sink = new SAXResult(new DefaultHandler());
-        trans.setErrorListener(new SchemaErrorListener(validationErrorsList, dpInfo));
-        trans.transform(source, sink);
-    } catch (Exception var12) {
-        Exception e = var12;
-        LOGGER.error("Error Processing Schema Validation ", e);
-        throw new SchemaValidationException("Error in schema validation", e);
-    }
-
-    if (!validationErrorsList.isEmpty()) {
-        return new ValidationErrorResponse(validationErrorsList);
-    } else {
-        LOGGER.info("Schema level validation completed");
-        return null;
-    }
-}
-
-private void checkForEmptyElements(String xmlContent, List<ValidationError> validationErrorsList, DataProcessingInfo dpInfo) {
-    // Map of elements that must have content and their reference IDs
-    Map<String, String> requiredElements = new HashMap<>();
-    requiredElements.put("BUID", "1A");
-    requiredElements.put("Brand", "5A");
-    requiredElements.put("SortCode", "6A");
-    requiredElements.put("Postcode", "9A");
-    requiredElements.put("Address", "10A");
-    requiredElements.put("Easting", "11A");
-    requiredElements.put("Northing", "12A");
+    LOGGER.info("Inside REP026aApiController > schemaAndBusinessValidationForAsyncProcess");
+    DataProcessingInfo dataProcessingObj = getDataProcessingObj(headers);
+    dataProcessingObj.setValidationType(Constants.SCHEMA);
+    requestParameterMap.put("repAsyncDataItems", repAsyncDataItems);
+    XmlUploadDataRequest xmlUploadDataRequest = new ObjectMapper().convertValue(requestParameterMap.get("xmlUploadDataRequest"), XmlUploadDataRequest.class);
     
-    // Using regex to find elements with whitespace-only content
-    for (Map.Entry<String, String> entry : requiredElements.entrySet()) {
-        String elementName = entry.getKey();
-        String elementRef = entry.getValue();
-        String pattern = "<" + elementName + ">\\s*</" + elementName + ">";
-        
-        // Find all matches of this element with whitespace-only content
-        Pattern regex = Pattern.compile(pattern);
-        Matcher matcher = regex.matcher(xmlContent);
-        
-        if (matcher.find()) {
-            // Create validation error for this empty element
-            ValidationError error = new ValidationError();
-            error.setType("Schema");
-            error.setElementRef(elementRef);
-            error.setElement("REP026a-AccesstoCashBanksandBuildingSocieties.BranchInformation." + elementName);
-            error.setDescription("BUID001100: This field must be completed.");
-            validationErrorsList.add(error);
+    // Get the file path
+    String filePath = "C:\\Users\\PBelgamwar\\Downloads\\REP026a_Test 2.xml";
+    
+    // Read the file and convert to String
+    InputStream inputStream = Files.newInputStream(Paths.get(filePath));
+    String xmlContent = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
+    inputStream.close();
+    
+    // Set XML content in dataProcessingObj to use same pathway as regular validation
+    dataProcessingObj.setXmlContent(xmlContent);
+    
+    // Create new InputStream from the String for processing
+    InputStream processInputStream = IOUtils.toInputStream(xmlContent, StandardCharsets.UTF_8);
+    
+    // Process with the enriched dataProcessingObj
+    ValidateDataItemResponse validateDataItemResponse = applicationService.processAsyncXmlUpload(processInputStream, requestParameterMap, dataProcessingObj, headers);
+    
+    try {
+        processInputStream.close();
+    } catch (IOException e) {
+        LOGGER.error("Exception in closing inputStream :: {}", e);
+    }
+
+    if (validateDataItemResponse != null && validateDataItemResponse.getCompletionStatus().equalsIgnoreCase(REPConstants.SCHEMA_PASSED)) {
+        dataProcessingObj.setValidationType(Constants.BUSINESS);
+        InputStream inputStream1 = Files.newInputStream(Paths.get(filePath));
+        validateDataItemResponse = readLargeXMLFiles.performBusinessValidations(inputStream1, validateDataItemResponse.getFirmDataItemId());
+        if (validateDataItemResponse != null) {
+            if (REPConstants.READY_TO_SUBMIT.equalsIgnoreCase(validateDataItemResponse.getCompletionStatus()))
+                emailNotificationService.sendEmail(xmlUploadDataRequest, REPConstants.A2C_VALIDATION_SUCCCESSFUL_HTML, headers.get("useremail"), dataProcessingObj);
+            else
+                emailNotificationService.sendEmail(xmlUploadDataRequest, REPConstants.A2C_VALIDATION_FAILURE_HTML, headers.get("useremail"), dataProcessingObj);
+        }
+    } else {
+        RepUtility.splittingSchemaMessage(validateDataItemResponse);
+        validateDataItemResponse.getValidationErrorResponse().get(0).setValidationErrors(RepUtility.modifySchemaMessageForPostCode(validateDataItemResponse));
+        InputStream inputStream1 = Files.newInputStream(Paths.get(filePath));
+        readLargeXMLFiles.fetchUniqueIdsForLargeXMLs(inputStream1, validateDataItemResponse, REPConstants.BRANCH_INFORMATION_BUID);
+        try {
+            inputStream1.close();
+        } catch (IOException e) {
+            LOGGER.error("Exception in closing inputStream :: {}", e);
         }
     }
+
+    return new ResponseEntity<>(validateDataItemResponse, HttpStatus.OK);
 }
