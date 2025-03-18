@@ -1,54 +1,12 @@
-public ValidationErrorResponse performAsyncSchemaValidation(InputStream inputStream, DataProcessingInfo dpInfo) {
-    List<ValidationError> validationErrorsList = new ArrayList();
-    String dataItemWithVersion;
-    if (dpInfo.getFilePath() == null) {
-        dataItemWithVersion = this.dataItemVersionService.getDataItemVersionFromUrlPath(dpInfo);
-    } else {
-        dataItemWithVersion = dpInfo.getFilePath();
-    }
+**JIRA Comment:**  
 
-    LOGGER.info("Data Item Version is {}", dataItemWithVersion);
+We need to ensure that XML validation does not allow elements with only whitespace.  
 
-    try {
-        // Convert InputStream to Reader to match the behavior of performValidation
-        Reader xmlContentReader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
-        
-        System.setProperty("javax.xml.transform.TransformerFactory", "com.saxonica.config.EnterpriseTransformerFactory");
-        TransformerFactory transformerFactory = CommonUtility.getTransformerFactory();
-        String stringSchemaFile = this.dataItemVersionService.getStringFileNameByVersionAndExtension(dataItemWithVersion, this.schemaFileSuffix, dpInfo);
-        LOGGER.info("stringSchemaFile = {}", stringSchemaFile);
-        
-        // Add common schema handling as in performValidation
-        StreamSource specific;
-        if (SchemaConstants.PSD_HANDBOOK_REF.contains(dpInfo.getHandbookReference()) && 
-            StringUtils.isNotEmpty(dpInfo.getCommonSchemaFilePath())) {
-            specific = new StreamSource(this.getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
-            StreamSource common = this.getFileFromResourceAsStream(dpInfo.getCommonSchemaFilePath());
-            ((EnterpriseTransformerFactory)transformerFactory).addSchema(common);
-            ((EnterpriseTransformerFactory)transformerFactory).addSchema(specific);
-        } else {
-            specific = new StreamSource(this.getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
-            ((EnterpriseTransformerFactory)transformerFactory).addSchema(specific);
-        }
-        
-        Transformer trans = transformerFactory.newTransformer();
-        
-        // Create StreamSource from Reader instead of InputStream
-        StreamSource source = new StreamSource(xmlContentReader);
-        
-        SAXResult sink = new SAXResult(new DefaultHandler());
-        trans.setErrorListener(new SchemaErrorListener(validationErrorsList, dpInfo));
-        trans.transform(source, sink);
-    } catch (Exception var12) {
-        Exception e = var12;
-        LOGGER.error("Error Processing Schema Validation ", e);
-        throw new SchemaValidationException("Error in schema validation", e);
-    }
+Here’s what we have tried so far:  
 
-    if (!validationErrorsList.isEmpty()) {
-        return new ValidationErrorResponse(validationErrorsList);
-    } else {
-        LOGGER.info("Schema level validation completed");
-        return null;
-    }
-}
+1. **Converting InputStream to Reader** – Did not work as expected because it reads in binary and does not normalize whitespace.  
+2. **Modifying the XSD Schema** – This is not an option since the team has decided not to change the schema.  
+3. **Using Saxon’s Whitespace Stripping** – We are working on this approach using `TransformFactory` to remove unnecessary spaces before validation.  
+4. **Adding a Custom Validation Step** – We are also working on a post-validation check to detect elements containing only whitespace and throw an error.  
+
+We will proceed with **Approach 3 and 4** to enforce stricter validation without modifying the XSD.
