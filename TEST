@@ -1,12 +1,3 @@
-**JIRA Comment:**  
-
-We need to ensure that XML validation does not allow elements with only whitespace.  
-
-Here’s what we have tried so far:  
-
-1. **Converting InputStream to Reader** – Did not work as expected because it reads in binary and does not normalize whitespace.  
-2. **Modifying the XSD Schema** – This is not an option since the team has decided not to change the schema.  
-3. **Using Saxon’s Whitespace Stripping** – We are working on this approach using `TransformFactory` to remove unnecessary spaces before validation.  
-4. **Adding a Custom Validation Step** – We are also working on a post-validation check to detect elements containing only whitespace and throw an error.  
-
-We will proceed with **Approach 3 and 4** to enforce stricter validation without modifying the XSD.
+String xmlContentString = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
+Reader xmlContent = new StringReader(xmlContentString);
+StreamSource source = new StreamSource(xmlContent);
