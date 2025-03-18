@@ -1,3 +1,44 @@
-String xmlContentString = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
-Reader xmlContent = new StringReader(xmlContentString);
-StreamSource source = new StreamSource(xmlContent);
+public ValidationErrorResponse performAsyncSchemaValidation(InputStream inputStream, DataProcessingInfo dpInfo) { 
+        List<ValidationError> validationErrorsList = new ArrayList(); 
+        String dataItemWithVersion; 
+        if (dpInfo.getFilePath() == null) { 
+            dataItemWithVersion = this.dataItemVersionService.getDataItemVersionFromUrlPath(dpInfo); 
+        } else { 
+            dataItemWithVersion = dpInfo.getFilePath(); 
+        } 
+ 
+        LOGGER.info("Data Item Version is {}", dataItemWithVersion); 
+ 
+        try { 
+            System.setProperty("javax.xml.transform.TransformerFactory", "com.saxonica.config.EnterpriseTransformerFactory"); 
+            TransformerFactory transformerFactory = CommonUtility.getTransformerFactory(); 
+            String stringSchemaFile = this.dataItemVersionService.getStringFileNameByVersionAndExtension(dataItemWithVersion, this.schemaFileSuffix, dpInfo); 
+            LOGGER.info("stringSchemaFile = {}", stringSchemaFile); 
+            StreamSource specific = new StreamSource(this.getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm()); 
+            ((EnterpriseTransformerFactory)transformerFactory).addSchema(specific); 
+            Transformer trans = transformerFactory.newTransformer(); 
+            
+            // CHANGE HERE: Replace the next line
+            // StreamSource source = new StreamSource(inputStream);
+            // With these three lines:
+            String xmlContentString = com.amazonaws.util.IOUtils.toString(inputStream);
+            Reader xmlContent = new StringReader(xmlContentString);
+            StreamSource source = new StreamSource(xmlContent);
+            
+            SAXResult sink = new SAXResult(new DefaultHandler()); 
+            trans.setErrorListener(new SchemaErrorListener(validationErrorsList, dpInfo)); 
+            trans.transform(source, sink); 
+        } catch (Exception var12) { 
+            Exception e = var12; 
+            LOGGER.error("Error Processing Schema Validation ", e); 
+            throw new SchemaValidationException("Error in schema validation", e); 
+        } 
+ 
+        if (!validationErrorsList.isEmpty()) { 
+            return new ValidationErrorResponse(validationErrorsList); 
+        } else { 
+            LOGGER.info("Schema level validation completed"); 
+            return null; 
+        } 
+    }
+}
