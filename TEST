@@ -1,33 +1,54 @@
- // Just set the basic property for whitespace stripping
-    transformerFactory.setAttribute("http://saxon.sf.net/feature/strip-whitespace", "all");
-
-
-public static TransformerFactory getTransformerFactory() {
-    TransformerFactory transformerFactory = TransformerFactory.newInstance();
-    transformerFactory.setAttribute(Feature.SCHEMA_VALIDATION.name(), 1);
-    transformerFactory.setAttribute(Feature.VALIDATION_WARNINGS.name(), Boolean.TRUE);
-    transformerFactory.setAttribute(Feature.ALLOW_UNRESOLVED_SCHEMA_COMPONENTS.name(), true);
-    
-    // Configure Saxon Enterprise for whitespace handling
-    if (transformerFactory instanceof net.sf.saxon.TransformerFactoryImpl) {
-        net.sf.saxon.TransformerFactoryImpl saxonFactory = 
-            (net.sf.saxon.TransformerFactoryImpl)transformerFactory;
-        
-        // Use standard properties available in all Saxon versions
-        saxonFactory.getConfiguration().setConfigurationProperty(
-            net.sf.saxon.lib.FeatureKeys.STRIP_WHITESPACE, "all");
-            
-        // Add a custom output filter with a simpler method
-        saxonFactory.setAttribute(
-            net.sf.saxon.lib.FeatureKeys.OUTPUT_URI_RESOLVER,
-            new net.sf.saxon.lib.OutputURIResolver() {
-                @Override
-                public Result resolve(String href, String base) {
-                    // Set up a filter that strips whitespace during output
-                    return new net.sf.saxon.lib.StandardOutputResolver().resolve(href, base);
-                }
-            });
+public ValidationErrorResponse performAsyncSchemaValidation(InputStream inputStream, DataProcessingInfo dpInfo) {
+    List<ValidationError> validationErrorsList = new ArrayList();
+    String dataItemWithVersion;
+    if (dpInfo.getFilePath() == null) {
+        dataItemWithVersion = this.dataItemVersionService.getDataItemVersionFromUrlPath(dpInfo);
+    } else {
+        dataItemWithVersion = dpInfo.getFilePath();
     }
-    
-    return transformerFactory;
+
+    LOGGER.info("Data Item Version is {}", dataItemWithVersion);
+
+    try {
+        // Convert InputStream to Reader to match the behavior of performValidation
+        Reader xmlContentReader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
+        
+        System.setProperty("javax.xml.transform.TransformerFactory", "com.saxonica.config.EnterpriseTransformerFactory");
+        TransformerFactory transformerFactory = CommonUtility.getTransformerFactory();
+        String stringSchemaFile = this.dataItemVersionService.getStringFileNameByVersionAndExtension(dataItemWithVersion, this.schemaFileSuffix, dpInfo);
+        LOGGER.info("stringSchemaFile = {}", stringSchemaFile);
+        
+        // Add common schema handling as in performValidation
+        StreamSource specific;
+        if (SchemaConstants.PSD_HANDBOOK_REF.contains(dpInfo.getHandbookReference()) && 
+            StringUtils.isNotEmpty(dpInfo.getCommonSchemaFilePath())) {
+            specific = new StreamSource(this.getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
+            StreamSource common = this.getFileFromResourceAsStream(dpInfo.getCommonSchemaFilePath());
+            ((EnterpriseTransformerFactory)transformerFactory).addSchema(common);
+            ((EnterpriseTransformerFactory)transformerFactory).addSchema(specific);
+        } else {
+            specific = new StreamSource(this.getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
+            ((EnterpriseTransformerFactory)transformerFactory).addSchema(specific);
+        }
+        
+        Transformer trans = transformerFactory.newTransformer();
+        
+        // Create StreamSource from Reader instead of InputStream
+        StreamSource source = new StreamSource(xmlContentReader);
+        
+        SAXResult sink = new SAXResult(new DefaultHandler());
+        trans.setErrorListener(new SchemaErrorListener(validationErrorsList, dpInfo));
+        trans.transform(source, sink);
+    } catch (Exception var12) {
+        Exception e = var12;
+        LOGGER.error("Error Processing Schema Validation ", e);
+        throw new SchemaValidationException("Error in schema validation", e);
+    }
+
+    if (!validationErrorsList.isEmpty()) {
+        return new ValidationErrorResponse(validationErrorsList);
+    } else {
+        LOGGER.info("Schema level validation completed");
+        return null;
+    }
 }
