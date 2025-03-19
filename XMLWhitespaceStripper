@@ -1,0 +1,299 @@
+import java.io.*;
+import javax.xml.stream.*;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.stax.*;
+import javax.xml.transform.stream.StreamResult;
+import java.time.Instant;
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicLong;
+
+public class XMLWhitespaceStripper {
+
+    /**
+     * Removes whitespace from XML tag content while streaming
+     * @param inputStream The input XML stream
+     * @return InputStream with whitespace removed from tag content
+     */
+    public static InputStream removeWhitespaceFromTagContent(InputStream inputStream) throws Exception {
+        // Create temporary output stream
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        
+        Instant startTime = Instant.now();
+        AtomicLong bytesProcessed = new AtomicLong(0);
+        AtomicLong elementCount = new AtomicLong(0);
+        
+        try {
+            // Set up XML input factory
+            XMLInputFactory inputFactory = XMLInputFactory.newInstance();
+            // Disable external entities for security
+            inputFactory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+            inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+            
+            // Create reader and writer
+            XMLStreamReader reader = inputFactory.createXMLStreamReader(inputStream);
+            XMLOutputFactory outputFactory = XMLOutputFactory.newInstance();
+            XMLStreamWriter writer = outputFactory.createXMLStreamWriter(outputStream);
+            
+            // Set up timing for progress reporting
+            long lastReportTime = System.currentTimeMillis();
+            
+            // Process the XML
+            while (reader.hasNext()) {
+                int eventType = reader.next();
+                
+                switch (eventType) {
+                    case XMLStreamConstants.START_DOCUMENT:
+                        writer.writeStartDocument(reader.getEncoding(), reader.getVersion());
+                        break;
+                        
+                    case XMLStreamConstants.START_ELEMENT:
+                        writeStartElement(reader, writer);
+                        elementCount.incrementAndGet();
+                        break;
+                        
+                    case XMLStreamConstants.CHARACTERS:
+                        // Trim the text content if it's only whitespace
+                        String text = reader.getText();
+                        bytesProcessed.addAndGet(text.length());
+                        
+                        if (!text.trim().isEmpty()) {
+                            // Content has non-whitespace - write the trimmed version
+                            writer.writeCharacters(text.trim());
+                        } else if (text.length() > 0 && Character.isWhitespace(text.charAt(0))) {
+                            // Only write whitespace if it's a single space to preserve readability
+                            writer.writeCharacters(" ");
+                        }
+                        break;
+                        
+                    case XMLStreamConstants.END_ELEMENT:
+                        writer.writeEndElement();
+                        break;
+                        
+                    case XMLStreamConstants.END_DOCUMENT:
+                        writer.writeEndDocument();
+                        break;
+                        
+                    case XMLStreamConstants.COMMENT:
+                        writer.writeComment(reader.getText());
+                        break;
+                        
+                    case XMLStreamConstants.PROCESSING_INSTRUCTION:
+                        writer.writeProcessingInstruction(reader.getPITarget(), reader.getPIData());
+                        break;
+                        
+                    case XMLStreamConstants.CDATA:
+                        writer.writeCData(reader.getText());
+                        break;
+                        
+                    case XMLStreamConstants.DTD:
+                        writer.writeDTD(reader.getText());
+                        break;
+                        
+                    case XMLStreamConstants.ENTITY_REFERENCE:
+                        writer.writeEntityRef(reader.getLocalName());
+                        break;
+                }
+                
+                // Report progress every 5 seconds
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastReportTime > 5000) {
+                    Duration duration = Duration.between(startTime, Instant.now());
+                    long seconds = duration.getSeconds();
+                    System.out.printf("Processing time: %d min %d sec | Elements: %d | Bytes: %d%n", 
+                                     seconds / 60, seconds % 60, 
+                                     elementCount.get(), bytesProcessed.get());
+                    lastReportTime = currentTime;
+                }
+            }
+            
+            reader.close();
+            writer.close();
+            
+            // Final timing report
+            Duration totalDuration = Duration.between(startTime, Instant.now());
+            long totalSeconds = totalDuration.getSeconds();
+            System.out.printf("COMPLETED: Total time: %d min %d sec | Elements processed: %d | Bytes processed: %d%n", 
+                             totalSeconds / 60, totalSeconds % 60, 
+                             elementCount.get(), bytesProcessed.get());
+            
+        } catch (Exception e) {
+            Duration errorDuration = Duration.between(startTime, Instant.now());
+            System.err.printf("ERROR after %d min %d sec | Elements: %d | Bytes: %d%n", 
+                             errorDuration.getSeconds() / 60, errorDuration.getSeconds() % 60,
+                             elementCount.get(), bytesProcessed.get());
+            throw new RuntimeException("Error processing XML stream", e);
+        }
+        
+        // Convert the output stream to an input stream
+        return new ByteArrayInputStream(outputStream.toByteArray());
+    }
+    
+    /**
+     * Handles writing a start element with all its namespaces and attributes
+     */
+    private static void writeStartElement(XMLStreamReader reader, XMLStreamWriter writer) throws XMLStreamException {
+        String prefix = reader.getPrefix();
+        String namespace = reader.getNamespaceURI();
+        String localName = reader.getLocalName();
+        
+        // Write element with correct namespace
+        if (namespace != null && !namespace.isEmpty()) {
+            if (prefix != null && !prefix.isEmpty()) {
+                writer.writeStartElement(prefix, localName, namespace);
+            } else {
+                writer.writeStartElement(namespace, localName);
+            }
+        } else {
+            writer.writeStartElement(localName);
+        }
+        
+        // Write all namespace declarations
+        for (int i = 0; i < reader.getNamespaceCount(); i++) {
+            String nsPrefix = reader.getNamespacePrefix(i);
+            String nsURI = reader.getNamespaceURI(i);
+            
+            if (nsPrefix != null && !nsPrefix.isEmpty()) {
+                writer.writeNamespace(nsPrefix, nsURI);
+            } else {
+                writer.writeDefaultNamespace(nsURI);
+            }
+        }
+        
+        // Write all attributes
+        for (int i = 0; i < reader.getAttributeCount(); i++) {
+            String attrPrefix = reader.getAttributePrefix(i);
+            String attrNamespace = reader.getAttributeNamespace(i);
+            String attrLocalName = reader.getAttributeLocalName(i);
+            String attrValue = reader.getAttributeValue(i);
+            
+            if (attrNamespace != null && !attrNamespace.isEmpty()) {
+                if (attrPrefix != null && !attrPrefix.isEmpty()) {
+                    writer.writeAttribute(attrPrefix, attrNamespace, attrLocalName, attrValue);
+                } else {
+                    writer.writeAttribute(attrNamespace, attrLocalName, attrValue);
+                }
+            } else {
+                writer.writeAttribute(attrLocalName, attrValue);
+            }
+        }
+    }
+    
+    /**
+     * A more memory-efficient approach for very large files using pipes
+     * @param inputStream The input XML stream
+     * @return The input stream with whitespace removed from tags
+     */
+    public static InputStream processLargeXmlFile(final InputStream inputStream) throws IOException {
+        PipedOutputStream pos = new PipedOutputStream();
+        final PipedInputStream pis = new PipedInputStream(pos);
+        
+        // Process in a separate thread to avoid deadlock
+        Thread processingThread = new Thread(() -> {
+            Instant threadStartTime = Instant.now();
+            try {
+                System.out.println("Starting XML whitespace processing thread at: " + threadStartTime);
+                
+                // Use the method above but write to the piped output stream
+                InputStream processedStream = removeWhitespaceFromTagContent(inputStream);
+                byte[] buffer = new byte[8192]; // 8K buffer
+                int bytesRead;
+                long totalBytesWritten = 0;
+                long lastReportTime = System.currentTimeMillis();
+                
+                while ((bytesRead = processedStream.read(buffer)) != -1) {
+                    pos.write(buffer, 0, bytesRead);
+                    totalBytesWritten += bytesRead;
+                    
+                    // Report pipe writing progress every 5 seconds
+                    long currentTime = System.currentTimeMillis();
+                    if (currentTime - lastReportTime > 5000) {
+                        Duration duration = Duration.between(threadStartTime, Instant.now());
+                        System.out.printf("Pipe writing progress: %d min %d sec | Bytes written: %d MB%n", 
+                                         duration.getSeconds() / 60, duration.getSeconds() % 60,
+                                         totalBytesWritten / (1024 * 1024));
+                        lastReportTime = currentTime;
+                    }
+                }
+                
+                pos.close();
+                Duration totalDuration = Duration.between(threadStartTime, Instant.now());
+                System.out.printf("XML processing thread completed: %d min %d sec | Total MB written: %d MB%n", 
+                                 totalDuration.getSeconds() / 60, totalDuration.getSeconds() % 60,
+                                 totalBytesWritten / (1024 * 1024));
+                
+            } catch (Exception e) {
+                Duration errorDuration = Duration.between(threadStartTime, Instant.now());
+                System.err.printf("ERROR in processing thread after %d min %d sec: %s%n", 
+                                 errorDuration.getSeconds() / 60, errorDuration.getSeconds() % 60,
+                                 e.getMessage());
+                e.printStackTrace();
+                try {
+                    pos.close();
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
+            }
+        });
+        
+        processingThread.start();
+        return pis;
+    }
+    
+    /**
+     * Example usage with timing information
+     */
+    public static void main(String[] args) {
+        Instant programStartTime = Instant.now();
+        System.out.println("Starting XML whitespace cleaning: " + programStartTime);
+        
+        try (FileInputStream fis = new FileInputStream("large-input.xml");
+             FileOutputStream fos = new FileOutputStream("cleaned-output.xml")) {
+            
+            long inputFileSize = new File("large-input.xml").length();
+            System.out.printf("Input file size: %d MB%n", inputFileSize / (1024 * 1024));
+            
+            InputStream cleanedXml = processLargeXmlFile(fis);
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            long totalBytesWritten = 0;
+            long lastReportTime = System.currentTimeMillis();
+            
+            // Copy the processed stream to the output file
+            while ((bytesRead = cleanedXml.read(buffer)) != -1) {
+                fos.write(buffer, 0, bytesRead);
+                totalBytesWritten += bytesRead;
+                
+                // Report main thread writing progress every 5 seconds
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastReportTime > 5000) {
+                    Duration duration = Duration.between(programStartTime, Instant.now());
+                    System.out.printf("Main thread writing progress: %d min %d sec | Bytes written: %d MB (%.1f%%)%n", 
+                                     duration.getSeconds() / 60, duration.getSeconds() % 60,
+                                     totalBytesWritten / (1024 * 1024),
+                                     (totalBytesWritten * 100.0) / inputFileSize);
+                    lastReportTime = currentTime;
+                }
+            }
+            
+            Duration totalDuration = Duration.between(programStartTime, Instant.now());
+            long outputFileSize = new File("cleaned-output.xml").length();
+            
+            System.out.println("\n=== Processing Summary ===");
+            System.out.printf("Total processing time: %d min %d sec%n", 
+                             totalDuration.getSeconds() / 60, totalDuration.getSeconds() % 60);
+            System.out.printf("Input file size: %d MB%n", inputFileSize / (1024 * 1024));
+            System.out.printf("Output file size: %d MB%n", outputFileSize / (1024 * 1024));
+            System.out.printf("Size reduction: %.2f%%%n", 
+                             100.0 * (1 - (double)outputFileSize / inputFileSize));
+            System.out.printf("Processing speed: %.2f MB/sec%n", 
+                             (inputFileSize / 1048576.0) / totalDuration.getSeconds());
+            
+        } catch (Exception e) {
+            Duration errorDuration = Duration.between(programStartTime, Instant.now());
+            System.err.printf("ERROR: Processing failed after %d min %d sec%n", 
+                             errorDuration.getSeconds() / 60, errorDuration.getSeconds() % 60);
+            e.printStackTrace();
+        }
+    }
+}
