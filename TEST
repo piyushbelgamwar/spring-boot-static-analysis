@@ -1,161 +1,101 @@
-Based on your code structure, here's where you should place the implementation for handling empty required fields in your application:
-
-## Where to Place the Implementation
-
-You have two methods:
-1. `performValidation` - Works correctly but throws exceptions for empty fields
-2. `performAsyncSchemaValidation` - Doesn't properly validate empty fields
-
-You need to modify the `performAsyncSchemaValidation` method in the `SaxonicaSchemaValidator` class.
-
-## Integration into Your Existing Code
-
-Here's how to integrate the first approach (Pre-Validation Content Check) into your existing structure:
-
 ```java
-// In the SaxonicaSchemaValidator class
-@Trace
-public ValidationErrorResponse performAsyncSchemaValidation(InputStream inputStream, DataProcessingInfo dpInfo) {
-    ValidationErrorResponse validationErrorResponse = new ValidationErrorResponse();
-    List<ValidationError> validationErrors = new ArrayList<>();
+public ValidationErrorResponse performValidation(Object dataItem, DataProcessingInfo dpInfo) {
+    List<ValidationError> validationErrorsList = new ArrayList<>();
     
     try {
-        // Step 1: Make a copy of the input stream
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        byte[] buffer = new byte[1024];
-        int len;
-        while ((len = inputStream.read(buffer)) > -1) {
-            baos.write(buffer, 0, len);
-        }
-        baos.flush();
-        byte[] content = baos.toByteArray();
+        // 1. Get schema file specific to dataItem
+        String dataItemWithVersion;
+        if (dpInfo.getFilePath() == null)
+            dataItemWithVersion = dataItemVersionService.getDataItemVersionFromUrlPath(dpInfo);
+        else
+            dataItemWithVersion = dpInfo.getFilePath();
         
-        // Create two streams - one for pre-check, one for schema validation
-        InputStream preCheckStream = new ByteArrayInputStream(content);
-        InputStream validationStream = new ByteArrayInputStream(content);
+        LOGGER.info("Data Item Version is {}", dataItemWithVersion);
         
-        // Step 2: Perform pre-validation check for empty required fields
-        validateEmptyRequiredFields(preCheckStream, validationErrors, dpInfo);
-        
-        // Step 3: Proceed with your existing Saxon validation logic
-        SchemaErrorListener errorListener = new SchemaErrorListener(validationErrors, dpInfo);
-        
-        // Your existing schema validation code using validationStream
-        // ...
-        
-        validationErrorResponse.setValidationErrors(validationErrors);
-        return validationErrorResponse;
-        
-    } catch (Exception e) {
-        log.error("Error in schema validation: {}", e.getMessage(), e);
-        throw new SchemaExecutionException("Schema validation failed: " + e.getMessage());
-    }
-}
-
-/**
- * Validates that all required fields have non-empty content
- */
-private void validateEmptyRequiredFields(InputStream inputStream, List<ValidationError> validationErrors, DataProcessingInfo dpInfo) {
-    try {
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setNamespaceAware(true);
-        DocumentBuilder builder = factory.newDocumentBuilder();
-        Document document = builder.parse(inputStream);
-        
-        // Define namespace URI from schema
-        String namespaceURI = "urn:fsa-gov-uk:MER:REP026a:1";
-        
-        // Map of required fields with their element reference IDs
-        Map<String, String> requiredFieldsMap = new HashMap<>();
-        requiredFieldsMap.put("Brand", "5A");
-        requiredFieldsMap.put("SortCode", "6A");
-        requiredFieldsMap.put("BUID", "4A");
-        requiredFieldsMap.put("Postcode", "7A");
-        requiredFieldsMap.put("Address", "8A");
-        requiredFieldsMap.put("Easting", "11A");
-        requiredFieldsMap.put("Northing", "12A");
-        requiredFieldsMap.put("Latitude", "13A");
-        requiredFieldsMap.put("Longitude", "14A");
-        // Add other required fields as per schema
-        
-        // Check each required field
-        for (Map.Entry<String, String> entry : requiredFieldsMap.entrySet()) {
-            String fieldName = entry.getKey();
-            String elementRef = entry.getValue();
-            
-            NodeList nodes = document.getElementsByTagNameNS(namespaceURI, fieldName);
-            for (int i = 0; i < nodes.getLength(); i++) {
-                Node node = nodes.item(i);
-                String textContent = node.getTextContent();
-                
-                // Check if content is null, empty or just whitespace
-                if (textContent == null || textContent.trim().isEmpty()) {
-                    ValidationError error = new ValidationError();
-                    error.setType("Schema");
-                    
-                    // Build the element path
-                    String elementPath = buildElementPath(node);
-                    error.setElement(elementPath);
-                    error.setElementRef(elementRef);
-                    error.setDescription("BUID001100: This field must be completed.");
-                    validationErrors.add(error);
-                }
-            }
-        }
-    } catch (Exception e) {
-        log.error("Error in pre-validation check: {}", e.getMessage(), e);
-        // Add a general validation error instead of throwing exception
-        ValidationError error = new ValidationError();
-        error.setType("Schema");
-        error.setElement("Document");
-        error.setElementRef("");
-        error.setDescription("Error validating XML structure: " + e.getMessage());
-        validationErrors.add(error);
-    }
-}
-
-/**
- * Builds the element path for error reporting
- */
-private String buildElementPath(Node node) {
-    StringBuilder path = new StringBuilder();
-    Node current = node;
-    
-    // Build path from current node up to root
-    while (current != null && current.getNodeType() == Node.ELEMENT_NODE) {
-        path.insert(0, current.getLocalName());
-        current = current.getParentNode();
-        if (current != null && current.getNodeType() == Node.ELEMENT_NODE) {
-            path.insert(0, ".");
-        }
-    }
-    
-    // Ensure path starts with the root element
-    String rootElement = "REP026a-AccesstoCashBanksandBuildingSocieties";
-    if (!path.toString().startsWith(rootElement)) {
-        if (path.length() > 0) {
-            return rootElement + "." + path.toString();
+        // 2. Handle input as stream
+        InputStream xmlInputStream = null;
+        if (dpInfo.getXmlContent() != null && StringUtils.isNotBlank(dpInfo.getXmlContent())) {
+            xmlInputStream = new ByteArrayInputStream(dpInfo.getXmlContent().getBytes(StandardCharsets.UTF_8));
+        } else if (dataItem instanceof InputStream) {
+            xmlInputStream = (InputStream) dataItem;
         } else {
-            return rootElement;
+            // Stream-based conversion
+            PipedOutputStream pos = new PipedOutputStream();
+            PipedInputStream pis = new PipedInputStream(pos);
+            
+            new Thread(() -> {
+                try {
+                    XMLStreamWriter writer = XMLOutputFactory.newInstance().createXMLStreamWriter(pos, "UTF-8");
+                    // Custom serialization logic based on your object model
+                    serializeToXml(writer, dataItem);
+                    writer.close();
+                    pos.close();
+                } catch (Exception e) {
+                    LOGGER.error("Error in XML streaming conversion", e);
+                }
+            }).start();
+            
+            xmlInputStream = pis;
         }
+        
+        // 3. Validate using stream approach
+        System.setProperty("javax.xml.transform.TransformerFactory", 
+                          "com.saxonica.config.EnterpriseTransformerFactory");
+        TransformerFactory transformerFactory = CommonUtility.getTransformerFactory();
+        
+        // Schema setup
+        StreamSource common;
+        StreamSource specific;
+        String stringSchemaFile = dataItemVersionService.getStringFileNameByVersionAndExtension(dataItemWithVersion, schemaFileSuffix, dpInfo);
+        LOGGER.info("stringSchemaFile = {}", stringSchemaFile);
+        
+        if (SchemaConstants.PSD_HANDBOOK_REF.contains(dpInfo.getHandbookReference()) && StringUtils.isNotEmpty(dpInfo.getCommonSchemaFilePath())) {
+            specific = new StreamSource(getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
+            common = getFileFromResourceAsStream(dpInfo.getCommonSchemaFilePath());
+            ((EnterpriseTransformerFactory) transformerFactory).addSchema(common);
+            ((EnterpriseTransformerFactory) transformerFactory).addSchema(specific);
+        } else {
+            specific = new StreamSource(getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
+            ((EnterpriseTransformerFactory) transformerFactory).addSchema(specific);
+        }
+        
+        Transformer trans = transformerFactory.newTransformer();
+        
+        // Stream-based reading
+        String xmlContentString = IOUtils.toString(xmlInputStream, StandardCharsets.UTF_8);
+        InputStream inputStream = new ByteArrayInputStream(xmlContentString.getBytes(StandardCharsets.UTF_8));
+        Reader xmlContent = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
+        LOGGER.info("Radar Content sync: " + xmlContent);
+        
+        StreamSource source = new StreamSource(xmlContent);
+        SAXResult sink = new SAXResult(new DefaultHandler());
+        trans.setErrorListener(new SchemaErrorListener(validationErrorsList, dpInfo));
+        trans.transform(source, sink);
+        
+    } catch (Exception e) {
+        LOGGER.error("Error Processing Schema Validation ", e);
+        throw new SchemaValidationException("Error in schema validation", e);
     }
     
-    return path.toString();
+    if (!validationErrorsList.isEmpty()) {
+        return new ValidationErrorResponse(validationErrorsList);
+    }
+    
+    LOGGER.info("Schema level validation completed");
+    return null;
+}
+
+// Helper method to serialize object to XML via streaming
+private void serializeToXml(XMLStreamWriter writer, Object dataItem) throws Exception {
+    // Implement based on your object structure
+    writer.writeStartDocument("UTF-8", "1.0");
+    writer.writeStartElement("root");
+    
+    // Add object serialization logic here
+    // For example, if dataItem is a custom class with fields to serialize
+    
+    writer.writeEndElement();
+    writer.writeEndDocument();
+    writer.flush();
 }
 ```
-
-## Integration Points with Your Controller
-
-In your `REP026aApiController` where you call `readLargeXMLFiles.performBusinessValidations()`, the fixed validation should work correctly without changes needed to the controller. The enhanced `performAsyncSchemaValidation` will now properly detect and report empty required fields.
-
-## Adjustments to Consider
-
-1. **Element Reference IDs**: Make sure to adjust the element reference IDs in the `requiredFieldsMap` to match your actual schema documentation.
-
-2. **Namespace URI**: Verify that the namespace URI matches exactly what's used in your XML schema.
-
-3. **Error Message Format**: Ensure the error message format matches what your application expects, including the "BUID001100" prefix.
-
-4. **Performance Optimization**: For large files, you might want to modify the approach to use SAX parsing instead of DOM, but this implementation provides a good balance of correctness and simplicity.
-
-This implementation should make your `performAsyncSchemaValidation` method behave consistently with your `performValidation` method for empty required fields.​​​​​​​​​​​​​​​​
