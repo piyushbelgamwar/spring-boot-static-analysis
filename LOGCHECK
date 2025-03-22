@@ -1,147 +1,303 @@
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import javax.xml.stream.Location;
+import javax.xml.stream.XMLEventFactory;
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLEventWriter;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.events.Characters;
+import javax.xml.stream.events.StartElement;
+import javax.xml.stream.events.XMLEvent;
 
-public class GitLabCloner {
-    // Base directory where repositories will be cloned
-    private static final String BASE_DIR = "/path/to/your/dedicated/java/folder";
+/**
+ * High-performance utility class for processing XML to handle empty strings and whitespace
+ * Optimized for processing very large XML files (300MB+) with detailed error reporting
+ */
+public class XmlUtil {
+    // Constants for performance tuning
+    private static final int BUFFER_SIZE = 8192 * 4; // 32KB buffer
+    private static final int SIZE_THRESHOLD = 10 * 1024 * 1024; // 10MB threshold for memory vs file
     
-    // GitLab base URL
-    private static final String GITLAB_URL = "https://gitlab.example.com";
-    
-    // Groups to try (in order of preference)
-    private static final List<String> GROUP_PATHS = List.of("FDC/", "DCP/");
-    
-    // Optional: Personal access token for private repositories
-    // private static final String GITLAB_TOKEN = "your_personal_access_token";
-    
-    public static void main(String[] args) {
-        // Option 1: Define the list of module names directly
-        var modules = List.of(
-            "module1",
-            "module2",
-            "module3",
-            // ... add all 108 module names here
-            "module108"
-        );
+    /**
+     * Error information class to hold detailed information about XML processing errors
+     */
+    public static class XmlErrorInfo {
+        private final String message;
+        private final int lineNumber;
+        private final int columnNumber;
+        private final String tagName;
+        private final String fileName;
         
-        // Option 2: Read from a string (uncomment if you have a string with module names)
-        // String moduleString = "module1 module2 module3 ... module108";
-        // var modules = Arrays.stream(moduleString.split("\\s+")).toList();
-        
-        // Option 3: Read from a file (uncomment if you have a file with module names)
-        // var modules = readModulesFromFile("modules.txt");
-        
-        // Create base directory if it doesn't exist
-        var baseDir = Path.of(BASE_DIR);
-        try {
-            Files.createDirectories(baseDir);
-        } catch (IOException e) {
-            System.err.println("Error creating base directory: " + e.getMessage());
-            return;
+        public XmlErrorInfo(String message, int lineNumber, int columnNumber, String tagName, String fileName) {
+            this.message = message;
+            this.lineNumber = lineNumber;
+            this.columnNumber = columnNumber;
+            this.tagName = tagName;
+            this.fileName = fileName;
         }
         
-        // Clone each repository
-        modules.forEach(GitLabCloner::cloneRepository);
+        @Override
+        public String toString() {
+            return String.format("XML Error: %s at line %d, column %d, tag '%s', file '%s'", 
+                    message, lineNumber, columnNumber, tagName, fileName);
+        }
         
-        System.out.println("All modules have been cloned.");
+        // Getters
+        public String getMessage() { return message; }
+        public int getLineNumber() { return lineNumber; }
+        public int getColumnNumber() { return columnNumber; }
+        public String getTagName() { return tagName; }
+        public String getFileName() { return fileName; }
     }
     
-    private static void cloneRepository(String moduleName) {
-        System.out.println("Cloning " + moduleName + "...");
+    /**
+     * Custom exception class for XML processing errors with detailed information
+     */
+    public static class XmlProcessingException extends RuntimeException {
+        private final XmlErrorInfo errorInfo;
         
-        // Create directory for the module
-        var moduleDir = Path.of(BASE_DIR, moduleName);
-        
-        var success = false;
-        
-        // Try each group path until successful
-        for (var groupPath : GROUP_PATHS) {
-            try {
-                // Clean up any previous attempt
-                if (Files.exists(moduleDir)) {
-                    deleteDirectoryRecursively(moduleDir);
-                }
-                Files.createDirectories(moduleDir);
-                
-                System.out.println("Trying to clone from " + groupPath + moduleName + "...");
-                
-                // Build the git clone command
-                var repoUrl = GITLAB_URL + "/" + groupPath + moduleName + ".git";
-                var processBuilder = new ProcessBuilder();
-                
-                // For private repositories with token:
-                // processBuilder.command("git", "clone", repoUrl, 
-                //                moduleDir.toString(), "--config", 
-                //                "http.extraheader=PRIVATE-TOKEN: " + GITLAB_TOKEN);
-                
-                // Without token:
-                processBuilder.command("git", "clone", repoUrl, moduleDir.toString());
-                
-                // Redirect error output to a file to suppress it from console
-                var errorLog = Path.of("git_error.log").toFile();
-                processBuilder.redirectError(errorLog);
-                
-                // Execute the command
-                var process = processBuilder.start();
-                var completed = process.waitFor(2, TimeUnit.MINUTES); // Add timeout
-                
-                if (completed && process.exitValue() == 0) {
-                    System.out.println("Successfully cloned " + moduleName + " from " + groupPath);
-                    success = true;
-                    break; // Exit the loop if successful
-                } else {
-                    System.out.println("Module not found in " + groupPath + ", trying next group...");
-                }
-                
-            } catch (IOException | InterruptedException e) {
-                System.err.println("Error trying to clone from " + groupPath + ": " + e.getMessage());
-            }
+        public XmlProcessingException(String message, Throwable cause, XmlErrorInfo errorInfo) {
+            super(message + ": " + errorInfo.toString(), cause);
+            this.errorInfo = errorInfo;
         }
         
-        // Final success/failure message
-        if (!success) {
-            System.out.println("Failed to clone " + moduleName + " from any group");
-            // Clean up empty directory if all attempts failed
+        public XmlErrorInfo getErrorInfo() {
+            return errorInfo;
+        }
+    }
+    
+    /**
+     * Fast processing of XML InputStream to handle empty strings by removing whitespace
+     * and returns a new InputStream with the processed content.
+     * 
+     * @param input The original XML InputStream
+     * @param fileName Optional file name for error reporting (can be null)
+     * @return A new InputStream with empty strings properly handled
+     * @throws XmlProcessingException If any error occurs during processing with detailed location information
+     */
+    public static InputStream cleanEmptyStrings(InputStream input, String fileName) {
+        if (input == null) {
+            throw new IllegalArgumentException("Input stream cannot be null");
+        }
+        
+        // Use "unknown" if fileName is null
+        String sourceName = (fileName != null) ? fileName : "unknown";
+        
+        // Buffer the input stream for better performance
+        BufferedInputStream bufferedInput = new BufferedInputStream(input, BUFFER_SIZE);
+        
+        try {
+            // Try to determine approximate size by marking and skipping
+            bufferedInput.mark(SIZE_THRESHOLD + 1);
+            long size = 0;
+            byte[] skipBuffer = new byte[BUFFER_SIZE];
+            int bytesRead;
+            while ((bytesRead = bufferedInput.read(skipBuffer, 0, skipBuffer.length)) != -1) {
+                size += bytesRead;
+                if (size > SIZE_THRESHOLD) break;
+            }
+            bufferedInput.reset();
+            
+            // Choose between memory or file-based processing based on size
+            if (size <= SIZE_THRESHOLD) {
+                return processInMemory(bufferedInput, sourceName);
+            } else {
+                return processUsingTempFile(bufferedInput, sourceName);
+            }
+        } catch (IOException e) {
+            // If we can't determine size, default to memory processing
             try {
-                Files.deleteIfExists(moduleDir);
+                bufferedInput.reset();
+                return processInMemory(bufferedInput, sourceName);
+            } catch (IOException resetEx) {
+                // If reset fails, create a new buffered stream
+                try {
+                    bufferedInput.close();
+                    // Recreate the input stream if we can't reset
+                    return processInMemory(new BufferedInputStream(input, BUFFER_SIZE), sourceName);
+                } catch (IOException closeEx) {
+                    XmlErrorInfo errorInfo = new XmlErrorInfo(
+                            "Failed to process XML stream", 0, 0, "unknown", sourceName);
+                    throw new XmlProcessingException("Failed to process XML stream", closeEx, errorInfo);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Overloaded method for backward compatibility
+     */
+    public static InputStream cleanEmptyStrings(InputStream input) {
+        return cleanEmptyStrings(input, null);
+    }
+    
+    /**
+     * Process XML in memory for smaller files
+     */
+    private static InputStream processInMemory(InputStream input, String fileName) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        
+        try {
+            processXml(input, outputStream, fileName);
+            byte[] processedData = outputStream.toByteArray();
+            return new ByteArrayInputStream(processedData);
+        } finally {
+            try {
+                outputStream.close();
+                input.close();
             } catch (IOException e) {
-                System.err.println("Failed to clean up directory: " + e.getMessage());
+                System.err.println("Warning: Could not close streams: " + e.getMessage());
             }
         }
     }
     
-    // Helper method to delete a directory recursively using Java NIO
-    private static void deleteDirectoryRecursively(Path path) throws IOException {
-        if (Files.exists(path)) {
-            Files.walk(path)
-                 .sorted((a, b) -> -a.compareTo(b)) // Reverse order so children are deleted before parents
-                 .forEach(p -> {
-                     try {
-                         Files.delete(p);
-                     } catch (IOException e) {
-                         System.err.println("Failed to delete: " + p + " - " + e.getMessage());
-                     }
-                 });
+    /**
+     * Process XML using temporary file for larger files
+     */
+    private static InputStream processUsingTempFile(InputStream input, String fileName) {
+        File tempFile = null;
+        
+        try {
+            tempFile = File.createTempFile("xml-processing-", ".tmp");
+            tempFile.deleteOnExit(); // Ensure cleanup
+            
+            FileOutputStream fileOutputStream = new FileOutputStream(tempFile);
+            BufferedOutputStream bufferedOutput = new BufferedOutputStream(fileOutputStream, BUFFER_SIZE);
+            
+            // Process the XML to the temp file
+            processXml(input, bufferedOutput, fileName);
+            
+            // Close output streams
+            bufferedOutput.close();
+            fileOutputStream.close();
+            
+            // Return an input stream from the temp file
+            return new BufferedInputStream(new FileInputStream(tempFile), BUFFER_SIZE);
+        } catch (IOException e) {
+            // Fallback to in-memory if file operations fail
+            System.err.println("Warning: Failed to use temp file, falling back to memory: " + e.getMessage());
+            return processInMemory(input, fileName);
         }
     }
     
-    // Helper method to read module names from a file (for Option 3)
-    private static List<String> readModulesFromFile(String filename) {
+    /**
+     * Core XML processing logic - works with any input/output stream combination
+     * Now with detailed error tracking
+     */
+    private static void processXml(InputStream input, OutputStream output, String fileName) {
+        // Track current element for error reporting
+        String currentElement = "root";
+        XMLEventReader reader = null;
+        XMLEventWriter writer = null;
+        
         try {
-            return Files.lines(Path.of(filename))
-                       .map(String::trim)
-                       .filter(line -> !line.isEmpty())
-                       .collect(Collectors.toList());
-        } catch (IOException e) {
-            System.err.println("Error reading module names from file: " + e.getMessage());
-            return List.of(); // Return empty list on error
+            // Optimize XML factories
+            XMLInputFactory inputFactory = XMLInputFactory.newInstance();
+            // Disable DTD processing and external entities for security and performance
+            inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+            inputFactory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+            // Enable location information for error reporting
+            inputFactory.setProperty(XMLInputFactory.IS_COALESCING, true);
+            
+            XMLOutputFactory outputFactory = XMLOutputFactory.newInstance();
+            XMLEventFactory eventFactory = XMLEventFactory.newInstance();
+            
+            // Create readers and writers
+            reader = inputFactory.createXMLEventReader(input);
+            writer = outputFactory.createXMLEventWriter(output, StandardCharsets.UTF_8.name());
+            
+            // Process the XML events
+            while (reader.hasNext()) {
+                XMLEvent event = reader.nextEvent();
+                
+                // Track current element name for better error reporting
+                if (event.isStartElement()) {
+                    StartElement startElement = event.asStartElement();
+                    currentElement = startElement.getName().getLocalPart();
+                }
+                
+                if (event.isCharacters()) {
+                    Characters characters = event.asCharacters();
+                    String text = characters.getData();
+                    
+                    // Fast whitespace check
+                    boolean isWhitespace = true;
+                    for (int i = 0; i < text.length(); i++) {
+                        if (!Character.isWhitespace(text.charAt(i))) {
+                            isWhitespace = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isWhitespace) {
+                        writer.add(eventFactory.createCharacters(""));
+                    } else {
+                        writer.add(event);
+                    }
+                } else {
+                    writer.add(event);
+                }
+            }
+            
+            writer.close();
+            reader.close();
+        } catch (XMLStreamException e) {
+            // Get detailed location information
+            Location location = e.getLocation();
+            int line = (location != null) ? location.getLineNumber() : 0;
+            int column = (location != null) ? location.getColumnNumber() : 0;
+            
+            XmlErrorInfo errorInfo = new XmlErrorInfo(
+                    e.getMessage(), line, column, currentElement, fileName);
+            
+            throw new XmlProcessingException("Error processing XML", e, errorInfo);
+        } finally {
+            // Ensure resources are closed even if exceptions occur
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (XMLStreamException e) {
+                    System.err.println("Warning: Could not close XML reader: " + e.getMessage());
+                }
+            }
+            
+            if (writer != null) {
+                try {
+                    writer.close();
+                } catch (XMLStreamException e) {
+                    System.err.println("Warning: Could not close XML writer: " + e.getMessage());
+                }
+            }
         }
+    }
+    
+    /**
+     * Returns a human-readable error message with line and element information
+     * 
+     * @param e The XML exception that occurred
+     * @param currentElement The name of the element being processed
+     * @param fileName The name of the file being processed
+     * @return A detailed error message
+     */
+    public static String getDetailedErrorMessage(XMLStreamException e, String currentElement, String fileName) {
+        Location location = e.getLocation();
+        int line = (location != null) ? location.getLineNumber() : 0;
+        int column = (location != null) ? location.getColumnNumber() : 0;
+        
+        XmlErrorInfo errorInfo = new XmlErrorInfo(
+                e.getMessage(), line, column, currentElement, fileName);
+        
+        return errorInfo.toString();
     }
 }
