@@ -1,0 +1,199 @@
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import javax.xml.stream.XMLEventFactory;
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLEventWriter;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.events.Characters;
+import javax.xml.stream.events.XMLEvent;
+
+/**
+ * High-performance utility class for processing XML to handle empty strings and whitespace
+ * Optimized for processing very large XML files (300MB+)
+ */
+public class XmlUtil {
+    // Constants for performance tuning
+    private static final int BUFFER_SIZE = 8192 * 4; // 32KB buffer
+    private static final int SIZE_THRESHOLD = 10 * 1024 * 1024; // 10MB threshold for memory vs file
+    
+    /**
+     * Fast processing of XML InputStream to handle empty strings by removing whitespace
+     * and returns a new InputStream with the processed content.
+     * 
+     * @param input The original XML InputStream
+     * @return A new InputStream with empty strings properly handled
+     */
+    public static InputStream cleanEmptyStrings(InputStream input) {
+        if (input == null) {
+            throw new IllegalArgumentException("Input stream cannot be null");
+        }
+        
+        // Buffer the input stream for better performance
+        BufferedInputStream bufferedInput = new BufferedInputStream(input, BUFFER_SIZE);
+        
+        try {
+            // Try to determine approximate size by marking and skipping
+            bufferedInput.mark(SIZE_THRESHOLD + 1);
+            long size = 0;
+            byte[] skipBuffer = new byte[BUFFER_SIZE];
+            int bytesRead;
+            while ((bytesRead = bufferedInput.read(skipBuffer, 0, skipBuffer.length)) != -1) {
+                size += bytesRead;
+                if (size > SIZE_THRESHOLD) break;
+            }
+            bufferedInput.reset();
+            
+            // Choose between memory or file-based processing based on size
+            if (size <= SIZE_THRESHOLD) {
+                return processInMemory(bufferedInput);
+            } else {
+                return processUsingTempFile(bufferedInput);
+            }
+        } catch (IOException e) {
+            // If we can't determine size, default to memory processing
+            try {
+                bufferedInput.reset();
+                return processInMemory(bufferedInput);
+            } catch (IOException resetEx) {
+                // If reset fails, create a new buffered stream
+                try {
+                    bufferedInput.close();
+                    // Recreate the input stream if we can't reset
+                    return processInMemory(new BufferedInputStream(input, BUFFER_SIZE));
+                } catch (IOException closeEx) {
+                    throw new RuntimeException("Failed to process XML stream", closeEx);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Process XML in memory for smaller files
+     */
+    private static InputStream processInMemory(InputStream input) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        
+        try {
+            processXml(input, outputStream);
+            byte[] processedData = outputStream.toByteArray();
+            return new ByteArrayInputStream(processedData);
+        } finally {
+            try {
+                outputStream.close();
+                input.close();
+            } catch (IOException e) {
+                System.err.println("Warning: Could not close streams: " + e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Process XML using temporary file for larger files
+     */
+    private static InputStream processUsingTempFile(InputStream input) {
+        File tempFile = null;
+        
+        try {
+            tempFile = File.createTempFile("xml-processing-", ".tmp");
+            tempFile.deleteOnExit(); // Ensure cleanup
+            
+            FileOutputStream fileOutputStream = new FileOutputStream(tempFile);
+            BufferedOutputStream bufferedOutput = new BufferedOutputStream(fileOutputStream, BUFFER_SIZE);
+            
+            // Process the XML to the temp file
+            processXml(input, bufferedOutput);
+            
+            // Close output streams
+            bufferedOutput.close();
+            fileOutputStream.close();
+            
+            // Return an input stream from the temp file
+            return new BufferedInputStream(new FileInputStream(tempFile), BUFFER_SIZE);
+        } catch (IOException e) {
+            // Fallback to in-memory if file operations fail
+            System.err.println("Warning: Failed to use temp file, falling back to memory: " + e.getMessage());
+            return processInMemory(input);
+        }
+    }
+    
+    /**
+     * Core XML processing logic - works with any input/output stream combination
+     */
+    private static void processXml(InputStream input, OutputStream output) {
+        try {
+            // Optimize XML factories
+            XMLInputFactory inputFactory = XMLInputFactory.newInstance();
+            // Disable DTD processing and external entities for security and performance
+            inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+            inputFactory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+            
+            XMLOutputFactory outputFactory = XMLOutputFactory.newInstance();
+            XMLEventFactory eventFactory = XMLEventFactory.newInstance();
+            
+            // Create readers and writers
+            XMLEventReader reader = inputFactory.createXMLEventReader(input);
+            XMLEventWriter writer = outputFactory.createXMLEventWriter(output, StandardCharsets.UTF_8.name());
+            
+            // Process the XML events
+            while (reader.hasNext()) {
+                XMLEvent event = reader.nextEvent();
+                
+                if (event.isCharacters()) {
+                    Characters characters = event.asCharacters();
+                    String text = characters.getData();
+                    
+                    // Fast whitespace check
+                    boolean isWhitespace = true;
+                    for (int i = 0; i < text.length(); i++) {
+                        if (!Character.isWhitespace(text.charAt(i))) {
+                            isWhitespace = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isWhitespace) {
+                        writer.add(eventFactory.createCharacters(""));
+                    } else {
+                        writer.add(event);
+                    }
+                } else {
+                    writer.add(event);
+                }
+            }
+            
+            writer.close();
+            reader.close();
+        } catch (XMLStreamException e) {
+            throw new RuntimeException("Error processing XML: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Advanced version that processes very large XML files with parallel processing
+     * where possible (for multi-part XML documents)
+     * 
+     * @param input The original XML InputStream
+     * @return A new InputStream with empty strings properly handled
+     */
+    public static InputStream cleanEmptyStringsParallel(InputStream input) {
+        // For extremely large files where sections can be processed independently
+        // Implementation would depend on specific XML structure
+        // This is a placeholder for advanced implementation
+        
+        return cleanEmptyStrings(input); // Default to standard implementation
+    }
+}
