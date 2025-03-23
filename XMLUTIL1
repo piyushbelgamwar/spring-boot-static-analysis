@@ -1,0 +1,206 @@
+import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import javax.xml.stream.XMLEventFactory;
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLEventWriter;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.events.Characters;
+import javax.xml.stream.events.XMLEvent;
+
+/**
+ * Simple utility to clean XML whitespace that works with broken/closed streams
+ */
+public final class XmlUtil {
+    private static final int BUFFER_SIZE = 16384; // 16KB buffer
+
+    /**
+     * Clean whitespace from XML
+     * Safe method that works even with problematic/closed streams
+     * 
+     * @param input XML InputStream
+     * @return New InputStream with whitespace removed
+     */
+    public static InputStream cleanEmptyStrings(InputStream input) {
+        if (input == null) {
+            throw new IllegalArgumentException("Input stream cannot be null");
+        }
+        
+        // Copy entire stream to memory first to prevent ClosedChannelException
+        byte[] fullData = copyToByteArray(input);
+        if (fullData.length == 0) {
+            throw new RuntimeException("XML input stream was empty");
+        }
+        
+        try {
+            // Process the XML content
+            return processXmlData(fullData);
+        } catch (Exception e) {
+            // If there's an error, also include the XML content in the exception message
+            String xmlPreview = new String(fullData, 0, Math.min(500, fullData.length), StandardCharsets.UTF_8);
+            throw new RuntimeException("Failed to process XML. First 500 chars: " + xmlPreview, e);
+        }
+    }
+    
+    /**
+     * Copy all data from input stream to byte array, safely closing the stream
+     */
+    private static byte[] copyToByteArray(InputStream input) {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] data = new byte[BUFFER_SIZE];
+        int bytesRead;
+        
+        try {
+            while ((bytesRead = input.read(data)) != -1) {
+                buffer.write(data, 0, bytesRead);
+            }
+            return buffer.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException("Error reading XML input stream", e);
+        } finally {
+            safeClose(input);
+            safeClose(buffer);
+        }
+    }
+    
+    /**
+     * Process XML bytes to clean whitespace
+     */
+    private static InputStream processXmlData(byte[] xmlData) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        InputStream input = new ByteArrayInputStream(xmlData);
+        XMLEventReader reader = null;
+        XMLEventWriter writer = null;
+        
+        try {
+            // Configure StAX parser
+            XMLInputFactory inputFactory = createSafeXmlInputFactory();
+            XMLOutputFactory outputFactory = XMLOutputFactory.newInstance();
+            XMLEventFactory eventFactory = XMLEventFactory.newInstance();
+            
+            // Buffer the input for better performance
+            BufferedInputStream bufferedInput = new BufferedInputStream(input, BUFFER_SIZE);
+            
+            // Create reader/writer
+            reader = inputFactory.createXMLEventReader(bufferedInput);
+            writer = outputFactory.createXMLEventWriter(outputStream, StandardCharsets.UTF_8.name());
+            
+            // Process all XML events
+            while (reader.hasNext()) {
+                XMLEvent event = reader.nextEvent();
+                
+                // Clean whitespace in character events
+                if (event.isCharacters()) {
+                    Characters characters = event.asCharacters();
+                    String text = characters.getData();
+                    
+                    if (isAllWhitespace(text)) {
+                        writer.add(eventFactory.createCharacters(""));
+                    } else {
+                        writer.add(event);
+                    }
+                } else {
+                    // Keep all other events unchanged
+                    writer.add(event);
+                }
+            }
+            
+            writer.flush();
+            return new ByteArrayInputStream(outputStream.toByteArray());
+            
+        } catch (XMLStreamException e) {
+            throw new RuntimeException("XML processing error: " + e.getMessage(), e);
+        } finally {
+            // Close all resources
+            safeClose(reader);
+            safeClose(writer);
+            safeClose(input);
+            safeClose(outputStream);
+        }
+    }
+    
+    /**
+     * Fast whitespace check for a string
+     */
+    private static boolean isAllWhitespace(String text) {
+        final int length = text.length();
+        for (int i = 0; i < length; i++) {
+            if (!Character.isWhitespace(text.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    /**
+     * Create a configured XML input factory with safe settings
+     */
+    private static XMLInputFactory createSafeXmlInputFactory() {
+        XMLInputFactory factory = XMLInputFactory.newInstance();
+        // Security settings
+        factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+        factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+        // Performance/correctness settings
+        factory.setProperty(XMLInputFactory.IS_COALESCING, true);
+        factory.setProperty(XMLInputFactory.IS_NAMESPACE_AWARE, true);
+        factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
+        return factory;
+    }
+    
+    /**
+     * Safely close an InputStream
+     */
+    private static void safeClose(InputStream stream) {
+        if (stream != null) {
+            try {
+                stream.close();
+            } catch (IOException e) {
+                // Ignore
+            }
+        }
+    }
+    
+    /**
+     * Safely close an OutputStream
+     */
+    private static void safeClose(ByteArrayOutputStream stream) {
+        if (stream != null) {
+            try {
+                stream.close();
+            } catch (IOException e) {
+                // Ignore
+            }
+        }
+    }
+    
+    /**
+     * Safely close an XMLEventReader
+     */
+    private static void safeClose(XMLEventReader reader) {
+        if (reader != null) {
+            try {
+                reader.close();
+            } catch (XMLStreamException e) {
+                // Ignore
+            }
+        }
+    }
+    
+    /**
+     * Safely close an XMLEventWriter
+     */
+    private static void safeClose(XMLEventWriter writer) {
+        if (writer != null) {
+            try {
+                writer.close();
+            } catch (XMLStreamException e) {
+                // Ignore
+            }
+        }
+    }
+}
