@@ -1,101 +1,136 @@
-```java
-public ValidationErrorResponse performValidation(Object dataItem, DataProcessingInfo dpInfo) {
+public ValidationErrorResponse performAsyncSchemaValidation(InputStream inputStream, DataProcessingInfo dpInfo) {
     List<ValidationError> validationErrorsList = new ArrayList<>();
     
+    // First, check if the input stream is null
+    if (inputStream == null) {
+        ValidationError validationError = new ValidationError();
+        validationError.setType("Schema");
+        validationError.setDescription("No XML content provided - input stream is null");
+        validationError.setElement("N/A");
+        validationError.setElementRef("N/A");
+        validationErrorsList.add(validationError);
+        
+        ValidationErrorResponse response = new ValidationErrorResponse();
+        response.setValidationErrors(validationErrorsList);
+        return response;
+    }
+    
+    // Make input stream buffered and markable if it isn't already
+    BufferedInputStream bufferedInputStream;
+    if (inputStream instanceof BufferedInputStream) {
+        bufferedInputStream = (BufferedInputStream) inputStream;
+    } else {
+        bufferedInputStream = new BufferedInputStream(inputStream);
+    }
+    
     try {
-        // 1. Get schema file specific to dataItem
-        String dataItemWithVersion;
-        if (dpInfo.getFilePath() == null)
-            dataItemWithVersion = dataItemVersionService.getDataItemVersionFromUrlPath(dpInfo);
-        else
-            dataItemWithVersion = dpInfo.getFilePath();
+        // Mark the stream so we can reset after checking
+        bufferedInputStream.mark(Integer.MAX_VALUE);
         
-        LOGGER.info("Data Item Version is {}", dataItemWithVersion);
-        
-        // 2. Handle input as stream
-        InputStream xmlInputStream = null;
-        if (dpInfo.getXmlContent() != null && StringUtils.isNotBlank(dpInfo.getXmlContent())) {
-            xmlInputStream = new ByteArrayInputStream(dpInfo.getXmlContent().getBytes(StandardCharsets.UTF_8));
-        } else if (dataItem instanceof InputStream) {
-            xmlInputStream = (InputStream) dataItem;
-        } else {
-            // Stream-based conversion
-            PipedOutputStream pos = new PipedOutputStream();
-            PipedInputStream pis = new PipedInputStream(pos);
-            
-            new Thread(() -> {
-                try {
-                    XMLStreamWriter writer = XMLOutputFactory.newInstance().createXMLStreamWriter(pos, "UTF-8");
-                    // Custom serialization logic based on your object model
-                    serializeToXml(writer, dataItem);
-                    writer.close();
-                    pos.close();
-                } catch (Exception e) {
-                    LOGGER.error("Error in XML streaming conversion", e);
-                }
-            }).start();
-            
-            xmlInputStream = pis;
+        // Check for elements with only whitespace
+        if (detectWhitespaceOnlyElements(bufferedInputStream)) {
+            ValidationError validationError = new ValidationError();
+            validationError.setType("Schema");
+            validationError.setDescription("Document contains elements with only whitespace content");
+            validationError.setElement("Document");
+            validationError.setElementRef("N/A");
+            validationErrorsList.add(validationError);
         }
         
-        // 3. Validate using stream approach
-        System.setProperty("javax.xml.transform.TransformerFactory", 
-                          "com.saxonica.config.EnterpriseTransformerFactory");
+        // Reset the stream for Saxon validation
+        bufferedInputStream.reset();
+    } catch (Exception e) {
+        LOGGER.error("Error during pre-validation checks", e);
+        // Don't throw here, continue with Saxon validation
+    }
+    
+    // Continue with the original Saxon validation logic
+    String dataItemWithVersion;
+    if (dpInfo.getFilePath() == null) {
+        dataItemWithVersion = this.dataItemVersionService.getDataItemVersionFromUrlPath(dpInfo);
+    } else {
+        dataItemWithVersion = dpInfo.getFilePath();
+    }
+
+    LOGGER.info("Data Item Version is {}", dataItemWithVersion);
+
+    try {
+        System.setProperty("javax.xml.transform.TransformerFactory", "com.saxonica.config.EnterpriseTransformerFactory");
         TransformerFactory transformerFactory = CommonUtility.getTransformerFactory();
-        
-        // Schema setup
-        StreamSource common;
-        StreamSource specific;
-        String stringSchemaFile = dataItemVersionService.getStringFileNameByVersionAndExtension(dataItemWithVersion, schemaFileSuffix, dpInfo);
+        String stringSchemaFile = this.dataItemVersionService.getStringFileNameByVersionAndExtension(dataItemWithVersion, this.schemaFileSuffix, dpInfo);
         LOGGER.info("stringSchemaFile = {}", stringSchemaFile);
-        
-        if (SchemaConstants.PSD_HANDBOOK_REF.contains(dpInfo.getHandbookReference()) && StringUtils.isNotEmpty(dpInfo.getCommonSchemaFilePath())) {
-            specific = new StreamSource(getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
-            common = getFileFromResourceAsStream(dpInfo.getCommonSchemaFilePath());
-            ((EnterpriseTransformerFactory) transformerFactory).addSchema(common);
-            ((EnterpriseTransformerFactory) transformerFactory).addSchema(specific);
-        } else {
-            specific = new StreamSource(getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
-            ((EnterpriseTransformerFactory) transformerFactory).addSchema(specific);
-        }
-        
+        StreamSource specific = new StreamSource(this.getClass().getClassLoader().getResource(stringSchemaFile).toExternalForm());
+        ((EnterpriseTransformerFactory)transformerFactory).addSchema(specific);
         Transformer trans = transformerFactory.newTransformer();
-        
-        // Stream-based reading
-        String xmlContentString = IOUtils.toString(xmlInputStream, StandardCharsets.UTF_8);
-        InputStream inputStream = new ByteArrayInputStream(xmlContentString.getBytes(StandardCharsets.UTF_8));
-        Reader xmlContent = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
-        LOGGER.info("Radar Content sync: " + xmlContent);
-        
-        StreamSource source = new StreamSource(xmlContent);
+        StreamSource source = new StreamSource(bufferedInputStream);
         SAXResult sink = new SAXResult(new DefaultHandler());
         trans.setErrorListener(new SchemaErrorListener(validationErrorsList, dpInfo));
         trans.transform(source, sink);
-        
-    } catch (Exception e) {
+    } catch (Exception var12) {
+        Exception e = var12;
         LOGGER.error("Error Processing Schema Validation ", e);
         throw new SchemaValidationException("Error in schema validation", e);
     }
     
+    ValidationErrorResponse response = new ValidationErrorResponse();
     if (!validationErrorsList.isEmpty()) {
-        return new ValidationErrorResponse(validationErrorsList);
+        response.setValidationErrors(validationErrorsList);
     }
-    
-    LOGGER.info("Schema level validation completed");
-    return null;
+    return response;
 }
 
-// Helper method to serialize object to XML via streaming
-private void serializeToXml(XMLStreamWriter writer, Object dataItem) throws Exception {
-    // Implement based on your object structure
-    writer.writeStartDocument("UTF-8", "1.0");
-    writer.writeStartElement("root");
-    
-    // Add object serialization logic here
-    // For example, if dataItem is a custom class with fields to serialize
-    
-    writer.writeEndElement();
-    writer.writeEndDocument();
-    writer.flush();
+// Add this helper method to your class
+private boolean detectWhitespaceOnlyElements(InputStream inputStream) {
+    try {
+        SAXParserFactory factory = SAXParserFactory.newInstance();
+        factory.setNamespaceAware(true);
+        SAXParser parser = factory.newSAXParser();
+        
+        final boolean[] foundWhitespaceOnly = {false};
+        
+        DefaultHandler handler = new DefaultHandler() {
+            private boolean inElement = false;
+            private String currentElement = null;
+            private boolean hasOnlyWhitespace = false;
+            private boolean hasContent = false;
+            
+            @Override
+            public void startElement(String uri, String localName, String qName, Attributes attributes) {
+                inElement = true;
+                currentElement = qName;
+                hasOnlyWhitespace = false;
+                hasContent = false;
+            }
+            
+            @Override
+            public void characters(char[] ch, int start, int length) {
+                if (inElement) {
+                    String content = new String(ch, start, length);
+                    if (content.length() > 0) {
+                        if (content.trim().isEmpty()) {
+                            hasOnlyWhitespace = true;
+                        } else {
+                            hasContent = true;
+                        }
+                    }
+                }
+            }
+            
+            @Override
+            public void endElement(String uri, String localName, String qName) {
+                if (inElement && hasOnlyWhitespace && !hasContent) {
+                    foundWhitespaceOnly[0] = true;
+                    LOGGER.info("Found element with only whitespace: {}", currentElement);
+                }
+                inElement = false;
+                currentElement = null;
+            }
+        };
+        
+        parser.parse(new InputSource(inputStream), handler);
+        return foundWhitespaceOnly[0];
+    } catch (Exception e) {
+        LOGGER.error("Error checking for whitespace-only elements", e);
+        return false;
+    }
 }
-```
