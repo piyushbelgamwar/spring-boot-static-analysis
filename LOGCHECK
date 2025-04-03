@@ -1,303 +1,407 @@
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
-import javax.xml.stream.Location;
-import javax.xml.stream.XMLEventFactory;
-import javax.xml.stream.XMLEventReader;
-import javax.xml.stream.XMLEventWriter;
-import javax.xml.stream.XMLInputFactory;
-import javax.xml.stream.XMLOutputFactory;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.events.Characters;
-import javax.xml.stream.events.StartElement;
-import javax.xml.stream.events.XMLEvent;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
-/**
- * High-performance utility class for processing XML to handle empty strings and whitespace
- * Optimized for processing very large XML files (300MB+) with detailed error reporting
- */
-public class XmlUtil {
-    // Constants for performance tuning
-    private static final int BUFFER_SIZE = 8192 * 4; // 32KB buffer
-    private static final int SIZE_THRESHOLD = 10 * 1024 * 1024; // 10MB threshold for memory vs file
-    
-    /**
-     * Error information class to hold detailed information about XML processing errors
-     */
-    public static class XmlErrorInfo {
-        private final String message;
-        private final int lineNumber;
-        private final int columnNumber;
-        private final String tagName;
-        private final String fileName;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+public class FeedbackDaoImplTest {
+
+    @Mock
+    private JdbcTemplate jdbcTemplate;
+
+    @Mock
+    private NamedParameterJdbcTemplate namedParameterJdbcTemplate;
+
+    @InjectMocks
+    private FeedbackDaoImpl feedbackDao;
+
+    @Captor
+    private ArgumentCaptor<Object[]> parametersCaptor;
+
+    @Captor
+    private ArgumentCaptor<MapSqlParameterSource> namedParametersCaptor;
+
+    private FeedbackData testFeedbackData;
+    private Timestamp currentTimestamp;
+
+    @BeforeEach
+    public void setUp() {
+        // Set up the current timestamp for testing
+        currentTimestamp = new Timestamp(Instant.now().toEpochMilli());
         
-        public XmlErrorInfo(String message, int lineNumber, int columnNumber, String tagName, String fileName) {
-            this.message = message;
-            this.lineNumber = lineNumber;
-            this.columnNumber = columnNumber;
-            this.tagName = tagName;
-            this.fileName = fileName;
-        }
+        // Create test feedback data
+        testFeedbackData = new FeedbackData();
+        testFeedbackData.setFeedbackId(1L);
+        testFeedbackData.setFirmDataItemId(100L);
+        testFeedbackData.setReportId(null);
+        testFeedbackData.setFirmReferenceNumber("FR12345");
+        testFeedbackData.setHandBookReference("HB-REF-001");
+        testFeedbackData.setFirmDataItemName("Test Handbook Item");
+        testFeedbackData.setFeedbackText("This is test feedback");
+        testFeedbackData.setSubmittedBy("testUser");
+        testFeedbackData.setSubmittedDate(currentTimestamp);
         
-        @Override
-        public String toString() {
-            return String.format("XML Error: %s at line %d, column %d, tag '%s', file '%s'", 
-                    message, lineNumber, columnNumber, tagName, fileName);
-        }
-        
-        // Getters
-        public String getMessage() { return message; }
-        public int getLineNumber() { return lineNumber; }
-        public int getColumnNumber() { return columnNumber; }
-        public String getTagName() { return tagName; }
-        public String getFileName() { return fileName; }
+        // Set any additional properties needed for the DAO under test
+        ReflectionTestUtils.setField(feedbackDao, "feedbackTableName", "FEEDBACK_DATA");
     }
-    
-    /**
-     * Custom exception class for XML processing errors with detailed information
-     */
-    public static class XmlProcessingException extends RuntimeException {
-        private final XmlErrorInfo errorInfo;
+
+    // --------------- CREATE OPERATIONS ---------------
+
+    @Test
+    public void testSaveFeedback_Success() {
+        // Arrange
+        when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
+
+        // Act
+        boolean result = feedbackDao.saveFeedback(testFeedbackData);
+
+        // Assert
+        assertTrue(result);
+        verify(jdbcTemplate).update(contains("INSERT INTO FEEDBACK_DATA"), parametersCaptor.capture());
         
-        public XmlProcessingException(String message, Throwable cause, XmlErrorInfo errorInfo) {
-            super(message + ": " + errorInfo.toString(), cause);
-            this.errorInfo = errorInfo;
-        }
-        
-        public XmlErrorInfo getErrorInfo() {
-            return errorInfo;
-        }
+        Object[] capturedParams = parametersCaptor.getValue();
+        assertEquals(testFeedbackData.getFirmDataItemId(), capturedParams[0]);
+        assertEquals(testFeedbackData.getReportId(), capturedParams[1]);
+        assertEquals(testFeedbackData.getFirmReferenceNumber(), capturedParams[2]);
+        assertEquals(testFeedbackData.getHandBookReference(), capturedParams[3]);
+        assertEquals(testFeedbackData.getFeedbackText(), capturedParams[4]);
+        assertEquals(testFeedbackData.getSubmittedBy(), capturedParams[5]);
+        assertEquals(testFeedbackData.getSubmittedDate(), capturedParams[6]);
     }
-    
-    /**
-     * Fast processing of XML InputStream to handle empty strings by removing whitespace
-     * and returns a new InputStream with the processed content.
-     * 
-     * @param input The original XML InputStream
-     * @param fileName Optional file name for error reporting (can be null)
-     * @return A new InputStream with empty strings properly handled
-     * @throws XmlProcessingException If any error occurs during processing with detailed location information
-     */
-    public static InputStream cleanEmptyStrings(InputStream input, String fileName) {
-        if (input == null) {
-            throw new IllegalArgumentException("Input stream cannot be null");
-        }
+
+    @Test
+    public void testSaveFeedback_DatabaseError() {
+        // Arrange
+        when(jdbcTemplate.update(anyString(), any(Object[].class)))
+            .thenThrow(new RuntimeException("Database error"));
+
+        // Act & Assert
+        Exception exception = assertThrows(RuntimeException.class, () -> {
+            feedbackDao.saveFeedback(testFeedbackData);
+        });
         
-        // Use "unknown" if fileName is null
-        String sourceName = (fileName != null) ? fileName : "unknown";
-        
-        // Buffer the input stream for better performance
-        BufferedInputStream bufferedInput = new BufferedInputStream(input, BUFFER_SIZE);
-        
-        try {
-            // Try to determine approximate size by marking and skipping
-            bufferedInput.mark(SIZE_THRESHOLD + 1);
-            long size = 0;
-            byte[] skipBuffer = new byte[BUFFER_SIZE];
-            int bytesRead;
-            while ((bytesRead = bufferedInput.read(skipBuffer, 0, skipBuffer.length)) != -1) {
-                size += bytesRead;
-                if (size > SIZE_THRESHOLD) break;
-            }
-            bufferedInput.reset();
-            
-            // Choose between memory or file-based processing based on size
-            if (size <= SIZE_THRESHOLD) {
-                return processInMemory(bufferedInput, sourceName);
-            } else {
-                return processUsingTempFile(bufferedInput, sourceName);
-            }
-        } catch (IOException e) {
-            // If we can't determine size, default to memory processing
-            try {
-                bufferedInput.reset();
-                return processInMemory(bufferedInput, sourceName);
-            } catch (IOException resetEx) {
-                // If reset fails, create a new buffered stream
-                try {
-                    bufferedInput.close();
-                    // Recreate the input stream if we can't reset
-                    return processInMemory(new BufferedInputStream(input, BUFFER_SIZE), sourceName);
-                } catch (IOException closeEx) {
-                    XmlErrorInfo errorInfo = new XmlErrorInfo(
-                            "Failed to process XML stream", 0, 0, "unknown", sourceName);
-                    throw new XmlProcessingException("Failed to process XML stream", closeEx, errorInfo);
-                }
-            }
-        }
+        assertTrue(exception.getMessage().contains("Database error"));
+        verify(jdbcTemplate).update(contains("INSERT INTO FEEDBACK_DATA"), any(Object[].class));
     }
-    
-    /**
-     * Overloaded method for backward compatibility
-     */
-    public static InputStream cleanEmptyStrings(InputStream input) {
-        return cleanEmptyStrings(input, null);
+
+    // --------------- READ OPERATIONS ---------------
+
+    @Test
+    public void testGetFeedbackById_Found() throws SQLException {
+        // Arrange - Mock ResultSet
+        ResultSet mockResultSet = mock(ResultSet.class);
+        when(mockResultSet.getLong("FEEDBACK_ID")).thenReturn(1L);
+        when(mockResultSet.getLong("FIRM_DATA_ITEM_ID")).thenReturn(100L);
+        when(mockResultSet.getObject("REPORT_ID")).thenReturn(null);
+        when(mockResultSet.getString("FIRM_REFERENCE_NUMBER")).thenReturn("FR12345");
+        when(mockResultSet.getString("HANDBOOK_REFERENCE")).thenReturn("HB-REF-001");
+        when(mockResultSet.getString("FIRM_DATA_ITEM_NAME")).thenReturn("Test Handbook Item");
+        when(mockResultSet.getString("FEEDBACK_TEXT")).thenReturn("This is test feedback");
+        when(mockResultSet.getString("SUBMITTED_BY")).thenReturn("testUser");
+        when(mockResultSet.getTimestamp("SUBMITTED_DATE")).thenReturn(currentTimestamp);
+        
+        when(jdbcTemplate.queryForObject(anyString(), any(Object[].class), any(RowMapper.class)))
+            .thenAnswer(invocation -> {
+                RowMapper<FeedbackData> mapper = invocation.getArgument(2);
+                return mapper.mapRow(mockResultSet, 1);
+            });
+
+        // Act
+        Optional<FeedbackData> result = feedbackDao.getFeedbackById(1L);
+
+        // Assert
+        assertTrue(result.isPresent());
+        assertEquals(1L, result.get().getFeedbackId());
+        assertEquals(100L, result.get().getFirmDataItemId());
+        assertEquals("FR12345", result.get().getFirmReferenceNumber());
+        assertEquals("This is test feedback", result.get().getFeedbackText());
+        
+        verify(jdbcTemplate).queryForObject(contains("SELECT * FROM FEEDBACK_DATA WHERE FEEDBACK_ID = ?"), 
+            eq(new Object[]{1L}), any(RowMapper.class));
     }
-    
-    /**
-     * Process XML in memory for smaller files
-     */
-    private static InputStream processInMemory(InputStream input, String fileName) {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        
-        try {
-            processXml(input, outputStream, fileName);
-            byte[] processedData = outputStream.toByteArray();
-            return new ByteArrayInputStream(processedData);
-        } finally {
-            try {
-                outputStream.close();
-                input.close();
-            } catch (IOException e) {
-                System.err.println("Warning: Could not close streams: " + e.getMessage());
-            }
-        }
+
+    @Test
+    public void testGetFeedbackById_NotFound() {
+        // Arrange
+        when(jdbcTemplate.queryForObject(anyString(), any(Object[].class), any(RowMapper.class)))
+            .thenThrow(new org.springframework.dao.EmptyResultDataAccessException("No results found", 1));
+
+        // Act
+        Optional<FeedbackData> result = feedbackDao.getFeedbackById(999L);
+
+        // Assert
+        assertFalse(result.isPresent());
+        verify(jdbcTemplate).queryForObject(contains("SELECT * FROM FEEDBACK_DATA WHERE FEEDBACK_ID = ?"), 
+            eq(new Object[]{999L}), any(RowMapper.class));
     }
-    
-    /**
-     * Process XML using temporary file for larger files
-     */
-    private static InputStream processUsingTempFile(InputStream input, String fileName) {
-        File tempFile = null;
+
+    @Test
+    public void testGetFeedbackByFirmDataItemId() throws SQLException {
+        // Arrange - Mock ResultSet
+        ResultSet mockResultSet = mock(ResultSet.class);
+        when(mockResultSet.getLong("FEEDBACK_ID")).thenReturn(1L);
+        when(mockResultSet.getLong("FIRM_DATA_ITEM_ID")).thenReturn(100L);
+        when(mockResultSet.getObject("REPORT_ID")).thenReturn(null);
+        when(mockResultSet.getString("FIRM_REFERENCE_NUMBER")).thenReturn("FR12345");
+        when(mockResultSet.getString("FEEDBACK_TEXT")).thenReturn("This is test feedback");
         
-        try {
-            tempFile = File.createTempFile("xml-processing-", ".tmp");
-            tempFile.deleteOnExit(); // Ensure cleanup
-            
-            FileOutputStream fileOutputStream = new FileOutputStream(tempFile);
-            BufferedOutputStream bufferedOutput = new BufferedOutputStream(fileOutputStream, BUFFER_SIZE);
-            
-            // Process the XML to the temp file
-            processXml(input, bufferedOutput, fileName);
-            
-            // Close output streams
-            bufferedOutput.close();
-            fileOutputStream.close();
-            
-            // Return an input stream from the temp file
-            return new BufferedInputStream(new FileInputStream(tempFile), BUFFER_SIZE);
-        } catch (IOException e) {
-            // Fallback to in-memory if file operations fail
-            System.err.println("Warning: Failed to use temp file, falling back to memory: " + e.getMessage());
-            return processInMemory(input, fileName);
-        }
+        when(jdbcTemplate.query(anyString(), any(Object[].class), any(RowMapper.class)))
+            .thenAnswer(invocation -> {
+                RowMapper<FeedbackData> mapper = invocation.getArgument(2);
+                return Collections.singletonList(mapper.mapRow(mockResultSet, 1));
+            });
+
+        // Act
+        List<FeedbackData> results = feedbackDao.getFeedbackByFirmDataItemId(100L);
+
+        // Assert
+        assertFalse(results.isEmpty());
+        assertEquals(1, results.size());
+        assertEquals(1L, results.get(0).getFeedbackId());
+        assertEquals(100L, results.get(0).getFirmDataItemId());
+        assertEquals("This is test feedback", results.get(0).getFeedbackText());
+        
+        verify(jdbcTemplate).query(contains("SELECT * FROM FEEDBACK_DATA WHERE FIRM_DATA_ITEM_ID = ?"), 
+            eq(new Object[]{100L}), any(RowMapper.class));
     }
-    
-    /**
-     * Core XML processing logic - works with any input/output stream combination
-     * Now with detailed error tracking
-     */
-    private static void processXml(InputStream input, OutputStream output, String fileName) {
-        // Track current element for error reporting
-        String currentElement = "root";
-        XMLEventReader reader = null;
-        XMLEventWriter writer = null;
+
+    @Test
+    public void testGetFeedbackByReportId() throws SQLException {
+        // Arrange - Mock ResultSet
+        ResultSet mockResultSet = mock(ResultSet.class);
+        when(mockResultSet.getLong("FEEDBACK_ID")).thenReturn(2L);
+        when(mockResultSet.getLong("REPORT_ID")).thenReturn(200L);
+        when(mockResultSet.getObject("FIRM_DATA_ITEM_ID")).thenReturn(null);
+        when(mockResultSet.getString("FIRM_REFERENCE_NUMBER")).thenReturn("FR12345");
+        when(mockResultSet.getString("FEEDBACK_TEXT")).thenReturn("Report feedback");
         
-        try {
-            // Optimize XML factories
-            XMLInputFactory inputFactory = XMLInputFactory.newInstance();
-            // Disable DTD processing and external entities for security and performance
-            inputFactory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-            inputFactory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
-            // Enable location information for error reporting
-            inputFactory.setProperty(XMLInputFactory.IS_COALESCING, true);
-            
-            XMLOutputFactory outputFactory = XMLOutputFactory.newInstance();
-            XMLEventFactory eventFactory = XMLEventFactory.newInstance();
-            
-            // Create readers and writers
-            reader = inputFactory.createXMLEventReader(input);
-            writer = outputFactory.createXMLEventWriter(output, StandardCharsets.UTF_8.name());
-            
-            // Process the XML events
-            while (reader.hasNext()) {
-                XMLEvent event = reader.nextEvent();
-                
-                // Track current element name for better error reporting
-                if (event.isStartElement()) {
-                    StartElement startElement = event.asStartElement();
-                    currentElement = startElement.getName().getLocalPart();
-                }
-                
-                if (event.isCharacters()) {
-                    Characters characters = event.asCharacters();
-                    String text = characters.getData();
-                    
-                    // Fast whitespace check
-                    boolean isWhitespace = true;
-                    for (int i = 0; i < text.length(); i++) {
-                        if (!Character.isWhitespace(text.charAt(i))) {
-                            isWhitespace = false;
-                            break;
-                        }
-                    }
-                    
-                    if (isWhitespace) {
-                        writer.add(eventFactory.createCharacters(""));
-                    } else {
-                        writer.add(event);
-                    }
-                } else {
-                    writer.add(event);
-                }
-            }
-            
-            writer.close();
-            reader.close();
-        } catch (XMLStreamException e) {
-            // Get detailed location information
-            Location location = e.getLocation();
-            int line = (location != null) ? location.getLineNumber() : 0;
-            int column = (location != null) ? location.getColumnNumber() : 0;
-            
-            XmlErrorInfo errorInfo = new XmlErrorInfo(
-                    e.getMessage(), line, column, currentElement, fileName);
-            
-            throw new XmlProcessingException("Error processing XML", e, errorInfo);
-        } finally {
-            // Ensure resources are closed even if exceptions occur
-            if (reader != null) {
-                try {
-                    reader.close();
-                } catch (XMLStreamException e) {
-                    System.err.println("Warning: Could not close XML reader: " + e.getMessage());
-                }
-            }
-            
-            if (writer != null) {
-                try {
-                    writer.close();
-                } catch (XMLStreamException e) {
-                    System.err.println("Warning: Could not close XML writer: " + e.getMessage());
-                }
-            }
-        }
+        when(jdbcTemplate.query(anyString(), any(Object[].class), any(RowMapper.class)))
+            .thenAnswer(invocation -> {
+                RowMapper<FeedbackData> mapper = invocation.getArgument(2);
+                return Collections.singletonList(mapper.mapRow(mockResultSet, 1));
+            });
+
+        // Act
+        List<FeedbackData> results = feedbackDao.getFeedbackByReportId(200L);
+
+        // Assert
+        assertFalse(results.isEmpty());
+        assertEquals(1, results.size());
+        assertEquals(2L, results.get(0).getFeedbackId());
+        assertEquals(200L, results.get(0).getReportId());
+        assertEquals("Report feedback", results.get(0).getFeedbackText());
+        
+        verify(jdbcTemplate).query(contains("SELECT * FROM FEEDBACK_DATA WHERE REPORT_ID = ?"), 
+            eq(new Object[]{200L}), any(RowMapper.class));
     }
-    
-    /**
-     * Returns a human-readable error message with line and element information
-     * 
-     * @param e The XML exception that occurred
-     * @param currentElement The name of the element being processed
-     * @param fileName The name of the file being processed
-     * @return A detailed error message
-     */
-    public static String getDetailedErrorMessage(XMLStreamException e, String currentElement, String fileName) {
-        Location location = e.getLocation();
-        int line = (location != null) ? location.getLineNumber() : 0;
-        int column = (location != null) ? location.getColumnNumber() : 0;
+
+    @Test
+    public void testGetAllFeedbackByFirmReference() throws SQLException {
+        // Arrange - Mock ResultSet
+        ResultSet mockResultSet = mock(ResultSet.class);
+        // Configure first row
+        when(mockResultSet.getLong(1, "FEEDBACK_ID")).thenReturn(1L);
+        when(mockResultSet.getLong(1, "FIRM_DATA_ITEM_ID")).thenReturn(100L);
+        when(mockResultSet.getString(1, "FEEDBACK_TEXT")).thenReturn("First feedback");
         
-        XmlErrorInfo errorInfo = new XmlErrorInfo(
-                e.getMessage(), line, column, currentElement, fileName);
+        // Configure second row
+        when(mockResultSet.getLong(2, "FEEDBACK_ID")).thenReturn(2L);
+        when(mockResultSet.getLong(2, "REPORT_ID")).thenReturn(200L);
+        when(mockResultSet.getString(2, "FEEDBACK_TEXT")).thenReturn("Second feedback");
         
-        return errorInfo.toString();
+        when(namedParameterJdbcTemplate.query(anyString(), any(MapSqlParameterSource.class), any(RowMapper.class)))
+            .thenAnswer(invocation -> {
+                RowMapper<FeedbackData> mapper = invocation.getArgument(2);
+                List<FeedbackData> results = Arrays.asList(
+                    mapper.mapRow(mockResultSet, 1),
+                    mapper.mapRow(mockResultSet, 2)
+                );
+                return results;
+            });
+
+        // Act
+        List<FeedbackData> results = feedbackDao.getAllFeedbackByFirmReference("FR12345");
+
+        // Assert
+        assertEquals(2, results.size());
+        assertEquals("First feedback", results.get(0).getFeedbackText());
+        assertEquals("Second feedback", results.get(1).getFeedbackText());
+        
+        verify(namedParameterJdbcTemplate).query(contains("SELECT * FROM FEEDBACK_DATA WHERE FIRM_REFERENCE_NUMBER = :firmRef"), 
+            namedParametersCaptor.capture(), any(RowMapper.class));
+            
+        MapSqlParameterSource params = namedParametersCaptor.getValue();
+        assertEquals("FR12345", params.getValue("firmRef"));
+    }
+
+    // --------------- UPDATE OPERATIONS ---------------
+
+    @Test
+    public void testUpdateFeedback_Success() {
+        // Arrange
+        when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
+
+        // Act
+        boolean result = feedbackDao.updateFeedback(testFeedbackData);
+
+        // Assert
+        assertTrue(result);
+        verify(jdbcTemplate).update(contains("UPDATE FEEDBACK_DATA SET"), parametersCaptor.capture());
+        
+        Object[] capturedParams = parametersCaptor.getValue();
+        // The last parameter should be the feedback ID for the WHERE clause
+        assertEquals(testFeedbackData.getFeedbackId(), capturedParams[capturedParams.length - 1]);
+    }
+
+    @Test
+    public void testUpdateFeedback_RecordNotFound() {
+        // Arrange
+        when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(0);
+
+        // Act
+        boolean result = feedbackDao.updateFeedback(testFeedbackData);
+
+        // Assert
+        assertFalse(result);
+        verify(jdbcTemplate).update(contains("UPDATE FEEDBACK_DATA SET"), any(Object[].class));
+    }
+
+    // --------------- DELETE OPERATIONS ---------------
+
+    @Test
+    public void testDeleteFeedback_Success() {
+        // Arrange
+        when(jdbcTemplate.update(anyString(), eq(1L))).thenReturn(1);
+
+        // Act
+        boolean result = feedbackDao.deleteFeedback(1L);
+
+        // Assert
+        assertTrue(result);
+        verify(jdbcTemplate).update(contains("DELETE FROM FEEDBACK_DATA WHERE FEEDBACK_ID = ?"), eq(1L));
+    }
+
+    @Test
+    public void testDeleteFeedback_RecordNotFound() {
+        // Arrange
+        when(jdbcTemplate.update(anyString(), eq(999L))).thenReturn(0);
+
+        // Act
+        boolean result = feedbackDao.deleteFeedback(999L);
+
+        // Assert
+        assertFalse(result);
+        verify(jdbcTemplate).update(contains("DELETE FROM FEEDBACK_DATA WHERE FEEDBACK_ID = ?"), eq(999L));
+    }
+
+    // --------------- TEST ROW MAPPER ---------------
+
+    @Test
+    public void testFeedbackRowMapper() throws SQLException {
+        // Arrange
+        ResultSet mockResultSet = mock(ResultSet.class);
+        when(mockResultSet.getLong("FEEDBACK_ID")).thenReturn(1L);
+        when(mockResultSet.getLong("FIRM_DATA_ITEM_ID")).thenReturn(100L);
+        when(mockResultSet.getObject("REPORT_ID")).thenReturn(null);
+        when(mockResultSet.getString("FIRM_REFERENCE_NUMBER")).thenReturn("FR12345");
+        when(mockResultSet.getString("HANDBOOK_REFERENCE")).thenReturn("HB-REF-001");
+        when(mockResultSet.getString("FIRM_DATA_ITEM_NAME")).thenReturn("Test Handbook Item");
+        when(mockResultSet.getString("FEEDBACK_TEXT")).thenReturn("This is test feedback");
+        when(mockResultSet.getString("SUBMITTED_BY")).thenReturn("testUser");
+        when(mockResultSet.getTimestamp("SUBMITTED_DATE")).thenReturn(currentTimestamp);
+
+        // Get the row mapper using reflection
+        RowMapper<FeedbackData> rowMapper = ReflectionTestUtils.invokeMethod(feedbackDao, "getFeedbackRowMapper");
+        assertNotNull(rowMapper, "Row mapper should not be null");
+
+        // Act
+        FeedbackData result = rowMapper.mapRow(mockResultSet, 1);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(1L, result.getFeedbackId());
+        assertEquals(100L, result.getFirmDataItemId());
+        assertEquals("FR12345", result.getFirmReferenceNumber());
+        assertEquals("HB-REF-001", result.getHandBookReference());
+        assertEquals("Test Handbook Item", result.getFirmDataItemName());
+        assertEquals("This is test feedback", result.getFeedbackText());
+        assertEquals("testUser", result.getSubmittedBy());
+        assertEquals(currentTimestamp, result.getSubmittedDate());
+    }
+
+    // --------------- TRANSACTION TESTS ---------------
+
+    @Test
+    public void testSaveFeedbackBatch_Success() {
+        // Arrange
+        List<FeedbackData> feedbackList = Arrays.asList(
+            testFeedbackData,
+            createTestFeedback(2L, "Second feedback")
+        );
+        
+        when(jdbcTemplate.batchUpdate(anyString(), any())).thenReturn(new int[]{1, 1});
+
+        // Act
+        boolean result = feedbackDao.saveFeedbackBatch(feedbackList);
+
+        // Assert
+        assertTrue(result);
+        verify(jdbcTemplate).batchUpdate(contains("INSERT INTO FEEDBACK_DATA"), any());
+    }
+
+    @Test
+    public void testSaveFeedbackBatch_PartialSuccess() {
+        // Arrange
+        List<FeedbackData> feedbackList = Arrays.asList(
+            testFeedbackData,
+            createTestFeedback(2L, "Second feedback")
+        );
+        
+        when(jdbcTemplate.batchUpdate(anyString(), any())).thenReturn(new int[]{1, 0});
+
+        // Act
+        boolean result = feedbackDao.saveFeedbackBatch(feedbackList);
+
+        // Assert
+        assertFalse(result, "Should return false when not all items were saved");
+        verify(jdbcTemplate).batchUpdate(contains("INSERT INTO FEEDBACK_DATA"), any());
+    }
+
+    // --------------- UTILITY METHODS ---------------
+
+    private FeedbackData createTestFeedback(Long id, String feedbackText) {
+        FeedbackData feedback = new FeedbackData();
+        feedback.setFeedbackId(id);
+        feedback.setFirmDataItemId(100L);
+        feedback.setReportId(null);
+        feedback.setFirmReferenceNumber("FR12345");
+        feedback.setHandBookReference("HB-REF-001");
+        feedback.setFirmDataItemName("Test Handbook Item");
+        feedback.setFeedbackText(feedbackText);
+        feedback.setSubmittedBy("testUser");
+        feedback.setSubmittedDate(currentTimestamp);
+        return feedback;
     }
 }
