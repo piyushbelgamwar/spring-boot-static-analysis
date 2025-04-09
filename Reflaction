@@ -1,0 +1,152 @@
+# 5 Approaches for Using Reflection in Java 17
+
+Here are five different approaches for using reflection in Java 17, along with their sources and documentation:
+
+## 1. Standard Java Reflection API
+
+This is the built-in reflection API that comes with the JDK.
+
+```java
+// Accessing a private method
+Method privateMethod = MyClass.class.getDeclaredMethod("myPrivateMethod", String.class);
+privateMethod.setAccessible(true);
+privateMethod.invoke(myObject, "parameter");
+
+// Accessing a private field
+Field privateField = MyClass.class.getDeclaredField("myPrivateField");
+privateField.setAccessible(true);
+String value = (String) privateField.get(myObject);
+```
+
+**Source**: Java SE Documentation
+- https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/reflect/package-summary.html
+- https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/Class.html
+
+## 2. Apache Commons Lang (ReflectionUtils)
+
+Apache Commons Lang provides utility classes that simplify reflection operations.
+
+```java
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.commons.lang3.reflect.MethodUtils;
+
+// Accessing a private field
+String value = (String) FieldUtils.readField(myObject, "myPrivateField", true);
+FieldUtils.writeField(myObject, "myPrivateField", "newValue", true);
+
+// Invoking a private method
+String result = (String) MethodUtils.invokeMethod(myObject, true, "myPrivateMethod", "parameter");
+```
+
+**Source**: Apache Commons Lang
+- https://commons.apache.org/proper/commons-lang/apidocs/org/apache/commons/lang3/reflect/FieldUtils.html
+- https://commons.apache.org/proper/commons-lang/apidocs/org/apache/commons/lang3/reflect/MethodUtils.html
+
+## 3. Spring Framework's ReflectionUtils
+
+Spring Framework includes a powerful ReflectionUtils class in spring-core.
+
+```java
+import org.springframework.util.ReflectionUtils;
+
+// Accessing a private field
+Field field = ReflectionUtils.findField(MyClass.class, "myPrivateField");
+ReflectionUtils.makeAccessible(field);
+String value = (String) ReflectionUtils.getField(field, myObject);
+ReflectionUtils.setField(field, myObject, "newValue");
+
+// Invoking a private method
+Method method = ReflectionUtils.findMethod(MyClass.class, "myPrivateMethod", String.class);
+ReflectionUtils.makeAccessible(method);
+String result = (String) ReflectionUtils.invokeMethod(method, myObject, "parameter");
+```
+
+**Source**: Spring Framework
+- https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/util/ReflectionUtils.html
+
+## 4. jOOR Library
+
+jOOR provides a more fluent API for Java reflection with lambda support.
+
+```java
+import org.joor.Reflect;
+
+// Accessing a private field
+String value = Reflect.on(myObject).field("myPrivateField").get();
+Reflect.on(myObject).set("myPrivateField", "newValue");
+
+// Invoking a private method
+String result = Reflect.on(myObject).call("myPrivateMethod", "parameter").get();
+```
+
+**Source**: jOOR Library
+- https://github.com/jOOQ/jOOR
+- https://javadoc.io/doc/org.jooq/joor/latest/org/joor/Reflect.html
+
+## 5. Method Handles (Java 9+)
+
+Method Handles provide a more efficient alternative to reflection in modern Java.
+
+```java
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.lang.invoke.MethodHandles.Lookup;
+
+// Setup lookup with private access
+Lookup lookup = MethodHandles.privateLookupIn(MyClass.class, MethodHandles.lookup());
+
+// Accessing a private field
+VarHandle fieldHandle = lookup.findVarHandle(MyClass.class, "myPrivateField", String.class);
+String value = (String) fieldHandle.get(myObject);
+fieldHandle.set(myObject, "newValue");
+
+// Invoking a private method
+MethodHandle methodHandle = lookup.findVirtual(MyClass.class, "myPrivateMethod", 
+    MethodType.methodType(String.class, String.class));
+String result = (String) methodHandle.invoke(myObject, "parameter");
+```
+
+**Source**: Java SE Documentation
+- https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/invoke/MethodHandles.html
+- https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/invoke/MethodHandle.html
+
+## Important Note for Java 17 (Module System)
+
+For any reflection approach to work with private members in Java 17's module system, you must ensure your module-info.java file has the proper `opens` declaration:
+
+```java
+module my.module {
+    opens com.mypackage.model; // Open specific package for reflection
+    // OR
+    opens com.mypackage.model to other.module; // Open to specific module
+}
+```
+
+Without this, reflection on private members will fail with an `InaccessibleObjectException`, regardless of the reflection approach used.
+
+
+
+
+
+Module System Quick-Start Guide - "opens" section
+
+https://openjdk.org/projects/jigsaw/quick-start#reflection
+Explains how reflection is affected by the module system
+
+
+Java Reflection and Modules
+
+https://www.oracle.com/technical-resources/articles/java/javareflection.html
+Article covering how reflection works with the module system
+
+
+Core Reflection API documentation
+
+https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/reflect/package-summary.html
+Details on how reflection API interacts with modules
+
+
+
+The most relevant section for the opens directive specifically is in the Java Language Specification, Section 7.7.2:
+https://docs.oracle.com/javase/specs/jls/se17/html/jls-7.html#jls-7.7.2
+This section formally defines the semantics of opens, exports and other module directives.
